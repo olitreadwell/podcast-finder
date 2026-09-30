@@ -36,7 +36,7 @@ export const PODCAST_FEED_USER_AGENT =
 export interface FeedEpisode {
   /** Episode title, HTML stripped, or null when the feed omits it. */
   title: string | null;
-  /** Publication date, or null when missing or unparseable. */
+  /** Publication date, or null when missing or unparsable. */
   publishedAt: Date | null;
   /** Length in seconds, or null when the feed omits or mangles it. */
   durationSeconds: number | null;
@@ -105,7 +105,7 @@ export function readFeedTagText(xml: string, tag: string): string | null {
 
 /**
  * Parse `<itunes:duration>`, which podcast hosts write as seconds, `MM:SS`,
- * `HH:MM:SS`, or as a lie. Anything unparseable becomes null.
+ * `HH:MM:SS`, or as a lie. Anything unparsable becomes null.
  */
 export function readRssDurationSeconds(value: string | null): number | null {
   if (value === null) return null;

@@ -74,7 +74,7 @@ describe('summariseEpisodeCadence', () => {
     expect(summary.gapSpreadDays).toBe(0);
   });
 
-  it('ignores episodes with unparseable dates instead of throwing', () => {
+  it('ignores episodes with unparsable dates instead of throwing', () => {
     const summary = summariseEpisodeCadence(
       [
         { publishedAt: new Date('nonsense'), durationSeconds: 100 },
