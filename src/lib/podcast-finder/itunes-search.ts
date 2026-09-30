@@ -97,7 +97,7 @@ export const PODCAST_COUNTRY_OPTIONS: readonly PodcastCountryOption[] = [
 ];
 
 /** Directories a result row can come from. */
-export type PodcastSource = 'apple' | 'charts' | 'fyyd' | 'archive';
+export type PodcastSource = 'apple' | 'fyyd' | 'archive';
 
 /** One show, normalised away from whichever directory answered. */
 export interface PodcastShow {
@@ -275,42 +275,6 @@ export async function searchItunesPodcasts(
     const response = await fetchImpl(buildItunesPodcastSearchUrl(options), {
       cache: 'no-store',
       signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS),
-      headers: { 'user-agent': ITUNES_USER_AGENT },
-    });
-    if (!response.ok) return { ok: false, reason: `Apple answered ${response.status}.` };
-    return parseItunesPodcastSearch(await response.json());
-  } catch (error) {
-    const timedOut = error instanceof Error && error.name === 'TimeoutError';
-    return {
-      ok: false,
-      reason: timedOut ? 'Apple took too long to answer.' : 'Could not reach Apple.',
-    };
-  }
-}
-
-/**
- * Look up many shows by Apple collection id in one request.
- *
- * Apple accepts a comma-separated id list, which is what makes a chart cheap to
- * turn into shows: the chart feed carries no feed URL, and one lookup fills
- * them in for a whole page rather than one request per row.
- */
-export async function lookupItunesShowsByIds(
-  appleIds: readonly number[],
-  options: { country?: string; timeoutMs?: number } = {},
-  fetchImpl: typeof fetch = fetch
-): Promise<{ ok: true; shows: PodcastShow[] } | { ok: false; reason: string }> {
-  if (appleIds.length === 0) return { ok: true, shows: [] };
-
-  const url = new URL(ITUNES_LOOKUP_ENDPOINT);
-  url.searchParams.set('id', appleIds.join(','));
-  url.searchParams.set('entity', 'podcast');
-  url.searchParams.set('country', options.country ?? 'us');
-
-  try {
-    const response = await fetchImpl(url.toString(), {
-      cache: 'no-store',
-      signal: AbortSignal.timeout(options.timeoutMs ?? ITUNES_TIMEOUT_MS),
       headers: { 'user-agent': ITUNES_USER_AGENT },
     });
     if (!response.ok) return { ok: false, reason: `Apple answered ${response.status}.` };

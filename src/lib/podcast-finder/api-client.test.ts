@@ -3,14 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildPodcastPublisherRouteUrl,
   buildPodcastSearchRouteUrl,
-  clampPodcastResultLimit,
   describeStatusProgress,
   fetchPodcastStatus,
   fetchPublisherShows,
   listResultFeedUrls,
-  searchPodcastShows,
+  searchEveryPodcastDirectory,
 } from './api-client';
-import { DEFAULT_PODCAST_SEARCH_LIMIT } from './itunes-search';
 
 /** One serialised show, as the search route returns it. */
 function wireShow(overrides: Record<string, unknown> = {}) {
@@ -43,16 +41,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe('buildPodcastSearchRouteUrl', () => {
   it('builds a stable URL', () => {
-    expect(
-      buildPodcastSearchRouteUrl({ term: ' drains ', country: 'nz', genreId: 1324, limit: 10 })
-    ).toBe('/api/podcast-search?term=drains&country=nz&genreId=1324&limit=10');
+    expect(buildPodcastSearchRouteUrl({ term: ' drains ', country: 'nz', genreId: 1324 })).toBe(
+      '/api/podcast-search?term=drains&country=nz&genreId=1324'
+    );
   });
 
-  it('omits an unset genre and defaults the storefront and limit', () => {
+  it('omits an unset genre and defaults the storefront', () => {
     const url = buildPodcastSearchRouteUrl({ term: 'drains' });
 
     expect(url).toContain('country=us');
-    expect(url).toContain(`limit=${DEFAULT_PODCAST_SEARCH_LIMIT}`);
     expect(url).not.toContain('genreId');
   });
 
@@ -61,24 +58,24 @@ describe('buildPodcastSearchRouteUrl', () => {
   });
 });
 
-describe('clampPodcastResultLimit', () => {
-  it('keeps the limit inside what Apple serves', () => {
-    expect(clampPodcastResultLimit(0)).toBe(1);
-    expect(clampPodcastResultLimit(5000)).toBe(200);
-    expect(clampPodcastResultLimit(20.9)).toBe(20);
-  });
-});
-
-describe('searchPodcastShows', () => {
+describe('searchEveryPodcastDirectory', () => {
   it('returns domain shows with real dates', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ shows: [wireShow()] }));
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        shows: [wireShow()],
+        counts: [{ source: 'apple', count: 1 }],
+        unavailable: [],
+      })
+    );
 
-    const outcome = await searchPodcastShows({ term: 'drains' }, fetchImpl);
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
 
     expect(outcome.ok).toBe(true);
     if (outcome.ok) {
       expect(outcome.shows[0]?.latestReleaseAt).toBeInstanceOf(Date);
       expect(outcome.shows[0]?.title).toBe('Weekly Wipe');
+      expect(outcome.counts).toEqual([{ source: 'apple', count: 1 }]);
+      expect(outcome.unavailable).toEqual([]);
     }
   });
 
@@ -87,16 +84,47 @@ describe('searchPodcastShows', () => {
       jsonResponse({ shows: [wireShow({ latestReleaseAt: null })] })
     );
 
-    const outcome = await searchPodcastShows({ term: 'drains' }, fetchImpl);
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
 
     expect(outcome.ok).toBe(true);
     if (outcome.ok) expect(outcome.shows[0]?.latestReleaseAt).toBeNull();
   });
 
+  it('reads the directories that failed from the same answer', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ shows: [wireShow()], unavailable: ['fyyd answered 503.'] })
+    );
+
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
+
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.unavailable).toEqual(['fyyd answered 503.']);
+      expect(outcome.counts).toEqual([]);
+    }
+  });
+
+  it('keeps the Archive items the route answers beside the table', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({
+        shows: [wireShow()],
+        archiveItems: [wireShow({ source: 'archive', sourceKey: 'archive:osr141', appleId: null })],
+      })
+    );
+
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
+
+    expect(outcome.ok).toBe(true);
+    if (outcome.ok) {
+      expect(outcome.archiveItems.map((item) => item.source)).toEqual(['archive']);
+      expect(outcome.archiveItems[0]?.title).toBe('Weekly Wipe');
+    }
+  });
+
   it('passes the route’s own error sentence through', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ error: 'Apple answered 429.' }, 502));
 
-    const outcome = await searchPodcastShows({ term: 'drains' }, fetchImpl);
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.reason).toBe('Apple answered 429.');
@@ -105,7 +133,7 @@ describe('searchPodcastShows', () => {
   it('falls back to a status sentence when the error body is not JSON', async () => {
     const fetchImpl = vi.fn(async () => new Response('<html>oops</html>', { status: 500 }));
 
-    const outcome = await searchPodcastShows({ term: 'drains' }, fetchImpl);
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.reason).toBe('Search failed (500).');
@@ -114,7 +142,7 @@ describe('searchPodcastShows', () => {
   it('handles a body with no shows array', async () => {
     const fetchImpl = vi.fn(async () => jsonResponse({ nope: true }));
 
-    const outcome = await searchPodcastShows({ term: 'drains' }, fetchImpl);
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.reason).toBe('Search returned an unexpected shape.');
@@ -125,7 +153,7 @@ describe('searchPodcastShows', () => {
       throw new Error('offline');
     });
 
-    const outcome = await searchPodcastShows({ term: 'drains' }, fetchImpl);
+    const outcome = await searchEveryPodcastDirectory({ term: 'drains' }, fetchImpl);
 
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.reason).toBe('Could not reach the search route.');
@@ -241,12 +269,12 @@ describe('listResultFeedUrls', () => {
     ]);
   });
 
-  it('caps the list at what the status route accepts', () => {
+  it('keeps every unique feed, so the page can walk them in batches', () => {
     const shows = new Array(30)
       .fill(null)
       .map((_, index) => showWithFeed(`https://example.com/${index}.xml`));
 
-    expect(listResultFeedUrls(shows)).toHaveLength(20);
+    expect(listResultFeedUrls(shows)).toHaveLength(30);
   });
 
   it('answers an empty list for no shows', () => {

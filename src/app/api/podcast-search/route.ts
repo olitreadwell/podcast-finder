@@ -1,11 +1,15 @@
-// Search adapter over Apple's iTunes Search API.
+// Search adapter over every directory the app knows.
 //
-// The browser never calls Apple directly: the API sends no CORS headers worth
-// relying on and rate limits per IP, so one visitor searching repeatedly would
-// burn the same budget for everyone behind that IP. The server makes one call
-// per search instead, and the response is a plain JSON shape the page can use.
+// The browser never calls a directory directly: Apple sends no CORS headers
+// worth relying on and rate limits per IP, so one visitor searching repeatedly
+// would burn the same budget for everyone behind that IP. The server makes the
+// calls instead, all at once, and answers one merged list.
+//
+// A directory that fails is a sentence in the response rather than a failed
+// search, because one source being down is not worth an empty page.
 
-import { searchItunesPodcasts, toSerialisedPodcastShow } from '@/lib/podcast-finder/itunes-search';
+import { searchEveryDirectory } from '@/lib/podcast-finder/directory-search';
+import { toSerialisedPodcastShow } from '@/lib/podcast-finder/itunes-search';
 import { podcastSearchQuerySchema } from '@/server/podcast-schemas';
 
 // Reads the query string, so it must never be prerendered or cached per build.
@@ -18,8 +22,13 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: 'Search needs at least two characters.' }, { status: 400 });
   }
 
-  const result = await searchItunesPodcasts(parsed.data);
+  const result = await searchEveryDirectory(parsed.data);
   if (!result.ok) return Response.json({ error: result.reason }, { status: 502 });
 
-  return Response.json({ shows: result.shows.map(toSerialisedPodcastShow) });
+  return Response.json({
+    shows: result.shows.map(toSerialisedPodcastShow),
+    counts: result.counts,
+    archiveItems: result.archiveItems.map(toSerialisedPodcastShow),
+    unavailable: result.unavailable,
+  });
 }

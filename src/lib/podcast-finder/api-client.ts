@@ -5,16 +5,15 @@
 // with domain types: `Date` objects, not ISO strings.
 
 import { MAX_FEEDS_PER_REQUEST, type PodcastFeedReport } from './feed-report';
+import type { PodcastSourceCount } from './directory-mix';
 import {
-  DEFAULT_PODCAST_SEARCH_LIMIT,
-  ITUNES_MAX_LIMIT,
   podcastShowFromWire,
   type PodcastSearchOptions,
   type PodcastShow,
   type SerialisedPodcastShow,
 } from './itunes-search';
 
-/** Where the page asks Apple-search questions. */
+/** Where the page asks its one search question. */
 export const PODCAST_SEARCH_ROUTE = '/api/podcast-search';
 
 /** Where the page asks for feed verdicts. */
@@ -23,20 +22,28 @@ export const PODCAST_STATUS_ROUTE = '/api/podcast-status';
 /** Where the page asks for one publisher's catalogue. */
 export const PODCAST_PUBLISHER_ROUTE = '/api/publisher-shows';
 
-/** Where the page asks for a storefront's chart. */
-export const PODCAST_CHARTS_ROUTE = '/api/podcast-charts';
+/** What a search asks for. The directories and the row budget are the server's
+ * business, so the page only says what it is looking for. */
+export type PodcastSearchRequest = Pick<PodcastSearchOptions, 'term' | 'country' | 'genreId'>;
 
-/** Where the page asks fyyd. */
-export const PODCAST_FYYD_ROUTE = '/api/podcast-fyyd';
-
-/** Where the page asks the Internet Archive. */
-export const PODCAST_ARCHIVE_ROUTE = '/api/podcast-archive';
-
-/** Directories the page can ask for shows. */
-export type PodcastDirectorySource = 'apple' | 'charts' | 'fyyd' | 'archive';
-
-/** A search that worked, or a sentence saying why it did not. */
+/**
+ * A merged search that worked, or a sentence saying why it did not.
+ *
+ * The directories that failed are `unavailable` rather than a failure, because
+ * one directory down is worth a note beside the results.
+ */
 export type PodcastSearchOutcome =
+  | {
+      ok: true;
+      shows: PodcastShow[];
+      counts: PodcastSourceCount[];
+      archiveItems: PodcastShow[];
+      unavailable: string[];
+    }
+  | { ok: false; reason: string };
+
+/** A list of shows that worked, or a sentence saying why it did not. */
+export type PodcastShowsOutcome =
   { ok: true; shows: PodcastShow[] } | { ok: false; reason: string };
 
 /** A status batch that worked, or a sentence saying why it did not. */
@@ -44,13 +51,12 @@ export type PodcastStatusOutcome =
   { ok: true; reports: PodcastFeedReport[] } | { ok: false; reason: string };
 
 /** Build the search URL the page fetches, with a stable parameter order. */
-export function buildPodcastSearchRouteUrl(options: PodcastSearchOptions): string {
+export function buildPodcastSearchRouteUrl(options: PodcastSearchRequest): string {
   const params = new URLSearchParams();
   params.set('term', options.term.trim());
   params.set('country', options.country ?? 'us');
   if (options.genreId !== undefined && options.genreId > 0)
     params.set('genreId', String(options.genreId));
-  params.set('limit', String(options.limit ?? DEFAULT_PODCAST_SEARCH_LIMIT));
   return `${PODCAST_SEARCH_ROUTE}?${params.toString()}`;
 }
 
@@ -60,87 +66,6 @@ export function buildPodcastPublisherRouteUrl(artistId: number, country: string)
   params.set('artistId', String(artistId));
   params.set('country', country);
   return `${PODCAST_PUBLISHER_ROUTE}?${params.toString()}`;
-}
-
-/** Build the chart URL the page fetches, with a stable parameter order. */
-export function buildPodcastChartsRouteUrl(country: string, limit: number): string {
-  const params = new URLSearchParams();
-  params.set('country', country);
-  params.set('limit', String(limit));
-  return `${PODCAST_CHARTS_ROUTE}?${params.toString()}`;
-}
-
-/** Build a term-search URL for one of the non-Apple directories. */
-export function buildPodcastDirectoryRouteUrl(route: string, term: string, limit: number): string {
-  const params = new URLSearchParams();
-  params.set('term', term.trim());
-  params.set('limit', String(limit));
-  return `${route}?${params.toString()}`;
-}
-
-/**
- * Read a show list from one of the app's own routes.
- *
- * Every directory answers the same shape, so the only thing that differs is the
- * wording when something goes wrong, which `label` supplies.
- */
-async function readShowsFromRoute(
-  url: string,
-  label: string,
-  fetchImpl: typeof fetch
-): Promise<PodcastSearchOutcome> {
-  try {
-    const response = await fetchImpl(url);
-    if (!response.ok) {
-      return {
-        ok: false,
-        reason: await readRouteError(response, `${label} search failed (${response.status}).`),
-      };
-    }
-
-    const body = (await response.json()) as { shows?: SerialisedPodcastShow[] };
-    if (!Array.isArray(body.shows))
-      return { ok: false, reason: `${label} returned an unexpected shape.` };
-
-    return { ok: true, shows: body.shows.map(podcastShowFromWire) };
-  } catch {
-    return { ok: false, reason: `Could not reach the ${label} route.` };
-  }
-}
-
-/**
- * Ask one directory for shows. Apple answers a topic search, charts answer a
- * storefront's ranked list, and fyyd and the Archive answer a topic search too;
- * the page only has to name the directory.
- */
-export async function searchPodcastDirectory(
-  source: PodcastDirectorySource,
-  options: PodcastSearchOptions,
-  fetchImpl: typeof fetch = fetch
-): Promise<PodcastSearchOutcome> {
-  const limit = options.limit ?? DEFAULT_PODCAST_SEARCH_LIMIT;
-  switch (source) {
-    case 'apple':
-      return searchPodcastShows(options, fetchImpl);
-    case 'charts':
-      return readShowsFromRoute(
-        buildPodcastChartsRouteUrl(options.country ?? 'us', limit),
-        'Chart',
-        fetchImpl
-      );
-    case 'fyyd':
-      return readShowsFromRoute(
-        buildPodcastDirectoryRouteUrl(PODCAST_FYYD_ROUTE, options.term, limit),
-        'fyyd',
-        fetchImpl
-      );
-    case 'archive':
-      return readShowsFromRoute(
-        buildPodcastDirectoryRouteUrl(PODCAST_ARCHIVE_ROUTE, options.term, limit),
-        'Archive',
-        fetchImpl
-      );
-  }
 }
 
 /** Read a JSON error body, falling back to a generic sentence. */
@@ -161,9 +86,13 @@ async function readRouteError(response: Response, fallback: string): Promise<str
   return fallback;
 }
 
-/** Search Apple through the app's own route, returning domain-typed shows. */
-export async function searchPodcastShows(
-  options: PodcastSearchOptions,
+/**
+ * Search every directory through the app's own route, returning one merged
+ * list. One request answers the whole search, so the page never has to know how
+ * many directories there are or which one failed.
+ */
+export async function searchEveryPodcastDirectory(
+  options: PodcastSearchRequest,
   fetchImpl: typeof fetch = fetch
 ): Promise<PodcastSearchOutcome> {
   try {
@@ -175,11 +104,24 @@ export async function searchPodcastShows(
       };
     }
 
-    const body = (await response.json()) as { shows?: SerialisedPodcastShow[] };
+    const body = (await response.json()) as {
+      shows?: SerialisedPodcastShow[];
+      counts?: PodcastSourceCount[];
+      archiveItems?: SerialisedPodcastShow[];
+      unavailable?: string[];
+    };
     if (!Array.isArray(body.shows))
       return { ok: false, reason: 'Search returned an unexpected shape.' };
 
-    return { ok: true, shows: body.shows.map(podcastShowFromWire) };
+    return {
+      ok: true,
+      shows: body.shows.map(podcastShowFromWire),
+      counts: Array.isArray(body.counts) ? body.counts : [],
+      archiveItems: Array.isArray(body.archiveItems)
+        ? body.archiveItems.map(podcastShowFromWire)
+        : [],
+      unavailable: Array.isArray(body.unavailable) ? body.unavailable : [],
+    };
   } catch {
     return { ok: false, reason: 'Could not reach the search route.' };
   }
@@ -195,7 +137,7 @@ export async function fetchPublisherShows(
   artistId: number,
   country: string,
   fetchImpl: typeof fetch = fetch
-): Promise<PodcastSearchOutcome> {
+): Promise<PodcastShowsOutcome> {
   try {
     const response = await fetchImpl(buildPodcastPublisherRouteUrl(artistId, country));
     if (!response.ok) {
@@ -249,11 +191,6 @@ export async function fetchPodcastStatus(
   }
 }
 
-/** The search limits the page offers, capped to what the route accepts. */
-export function clampPodcastResultLimit(limit: number): number {
-  return Math.min(ITUNES_MAX_LIMIT, Math.max(1, Math.floor(limit)));
-}
-
 /** Sentence for the live region while verdicts are still arriving. */
 export function describeStatusProgress(answered: number, requested: number): string {
   if (requested === 0) return '';
@@ -263,16 +200,18 @@ export function describeStatusProgress(answered: number, requested: number): str
 }
 
 /**
- * The feed URLs worth asking about for a result set: unique, in result order,
- * capped at what the route accepts. Shows Apple returned without a feed URL are
- * dropped, because there is nothing to pull for them.
+ * The feed URLs worth asking about for a result set: unique, in result order.
+ *
+ * There is no cap here: the route accepts twenty feeds per request, so the page
+ * walks the list in batches of twenty rather than throwing the rest away. A
+ * show a directory returned without a feed URL is dropped, because there is
+ * nothing to pull for it.
  */
 export function listResultFeedUrls(shows: readonly PodcastShow[]): string[] {
   const urls = new Set<string>();
   for (const show of shows) {
     if (show.feedUrl === null) continue;
     urls.add(show.feedUrl);
-    if (urls.size >= MAX_FEEDS_PER_REQUEST) break;
   }
   return [...urls];
 }

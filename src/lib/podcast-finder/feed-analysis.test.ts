@@ -8,6 +8,7 @@ import {
   listDatedEpisodeSamples,
   parsePodcastFeed,
   readEpisodeAudioUrl,
+  readFeedLanguage,
   readFeedTagText,
   readRssDurationSeconds,
   stripFeedMarkup,
@@ -73,6 +74,23 @@ describe('xml helpers', () => {
     expect(readFeedTagText('<channel><title>Hi</title></channel>', 'title')).toBe('Hi');
     expect(readFeedTagText('<channel></channel>', 'title')).toBeNull();
     expect(readFeedTagText('<channel><title>   </title></channel>', 'title')).toBeNull();
+  });
+});
+
+describe('readFeedLanguage', () => {
+  it('reduces an RSS language to its primary subtag', () => {
+    expect(readFeedLanguage('<rss><channel><language>en-US</language></channel></rss>')).toBe('en');
+  });
+
+  it('reads the xml:lang an Atom feed declares', () => {
+    expect(readFeedLanguage('<feed xml:lang="de-DE"><title>X</title></feed>')).toBe('de');
+  });
+
+  it('answers null when the feed says nothing usable', () => {
+    expect(readFeedLanguage('<rss><channel><title>X</title></channel></rss>')).toBeNull();
+    expect(
+      readFeedLanguage('<rss><channel><language>not a language</language></channel></rss>')
+    ).toBeNull();
   });
 });
 

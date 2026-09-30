@@ -4,6 +4,7 @@ import type { PodcastFeedReport } from './feed-report';
 import type { PodcastShow } from './itunes-search';
 import {
   MAX_QUERY_LENGTH,
+  extractPodcastSearchTerm,
   matchesPodcastQuery,
   matchesTextQuery,
   parsePodcastQuery,
@@ -40,6 +41,7 @@ function report(overrides: Partial<PodcastFeedReport> = {}): PodcastFeedReport {
     feedTitle: 'The Water Drop',
     description: null,
     latestEpisodeTitle: null,
+    language: null,
     health: 'active',
     claim: null,
     claimMismatch: null,
@@ -146,6 +148,12 @@ describe('parsePodcastQuery', () => {
       operator: '=',
       value: 5,
     });
+    expect(node('releases>=8')).toEqual({
+      kind: 'number',
+      field: 'releases',
+      operator: '>=',
+      value: 8,
+    });
   });
 
   it('names the field when a numeric field gets something else', () => {
@@ -226,6 +234,50 @@ describe('matchesPodcastQuery', () => {
     expect(matchesPodcastQuery(node('volcano'), subject)).toBe(false);
   });
 
+  it('matches a bare term in the words the feed itself supplies', () => {
+    const withDescription = {
+      show: show(),
+      report: report({ description: 'A show about volcanoes.' }),
+    };
+
+    expect(matchesPodcastQuery(node('volcano'), withDescription)).toBe(true);
+    expect(matchesPodcastQuery(node('title:volcano'), withDescription)).toBe(false);
+  });
+
+  it('filters on the language the feed declares', () => {
+    const english = { show: show(), report: report({ language: 'en' }) };
+
+    expect(matchesPodcastQuery(node('language:en'), english)).toBe(true);
+    expect(matchesPodcastQuery(node('language:fr'), english)).toBe(false);
+    // A feed that has not been read cannot be said to be in any language.
+    expect(matchesPodcastQuery(node('language:en'), subject)).toBe(false);
+  });
+
+  it('filters on the median episode length in minutes', () => {
+    // The fixture's median episode is 1320 seconds, which is 22 minutes.
+    expect(matchesPodcastQuery(node('length>30'), subject)).toBe(false);
+    expect(matchesPodcastQuery(node('length<30'), subject)).toBe(true);
+    expect(matchesPodcastQuery(node('length:22'), subject)).toBe(true);
+  });
+
+  it('filters on the releases across the feed year of bars', () => {
+    const steady = {
+      show: show(),
+      report: report({
+        cadence: {
+          ...report().cadence!,
+          monthlyReleaseCounts: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        },
+      }),
+    };
+
+    expect(matchesPodcastQuery(node('releases:12'), steady)).toBe(true);
+    expect(matchesPodcastQuery(node('releases>=6'), steady)).toBe(true);
+    expect(matchesPodcastQuery(node('releases>12'), steady)).toBe(false);
+    // Nothing measured releases yet, so the row does not match by accident.
+    expect(matchesPodcastQuery(node('releases>0'), subject)).toBe(false);
+  });
+
   it('scopes a field term to that field only', () => {
     expect(matchesPodcastQuery(node('publisher:padre'), subject)).toBe(true);
     expect(matchesPodcastQuery(node('title:padre'), subject)).toBe(false);
@@ -260,5 +312,29 @@ describe('matchesPodcastQuery', () => {
   it('treats a report with no health as unknown', () => {
     const subjectWithoutVerdict = { show: show(), report: report({ health: null }) };
     expect(matchesPodcastQuery(node('verdict:unknown'), subjectWithoutVerdict)).toBe(true);
+  });
+});
+
+describe('extractPodcastSearchTerm', () => {
+  it('takes the words a directory can search for', () => {
+    expect(extractPodcastSearchTerm(node('water drain'))).toBe('water drain');
+  });
+
+  it('keeps the words a field term is scoped to, and searches a superset', () => {
+    expect(extractPodcastSearchTerm(node('title:water'))).toBe('water');
+  });
+
+  it('leaves out a word the visitor excluded, so the request is not wasted', () => {
+    expect(extractPodcastSearchTerm(node('water AND NOT fire'))).toBe('water');
+  });
+
+  it('asks for nothing when the query is only fields or numbers', () => {
+    expect(extractPodcastSearchTerm(node('gap>30'))).toBe('');
+    expect(extractPodcastSearchTerm(node('verdict:active'))).toBe('');
+    expect(extractPodcastSearchTerm(null)).toBe('');
+  });
+
+  it('strips wildcards and drops a word too short to search', () => {
+    expect(extractPodcastSearchTerm(node('wa*ter AND a'))).toBe('water');
   });
 });

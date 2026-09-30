@@ -20,5 +20,5 @@ test('openapi spec is served and swagger ui renders', async ({ page, request }) 
   await expect(page.locator('.swagger-ui .info .title')).toContainText('Podcast Finder API', {
     timeout: 15_000,
   });
-  await expect(page.locator('.swagger-ui .opblock')).toHaveCount(11);
+  await expect(page.locator('.swagger-ui .opblock')).toHaveCount(8);
 });

@@ -12,14 +12,26 @@
 import type { PodcastFeedReport } from './feed-report';
 import type { PodcastShow } from './itunes-search';
 
-/** Longest query accepted, so a pasted document cannot become a filter. */
-export const MAX_QUERY_LENGTH = 200;
+/** Longest query accepted, so a pasted document cannot become a filter. Kept at
+ * the search route's own term cap, so the words a query hands a directory can
+ * never be longer than that route accepts. */
+export const MAX_QUERY_LENGTH = 120;
 
 /** Text fields a term can be scoped to. */
-export const QUERY_TEXT_FIELDS = ['title', 'publisher', 'genre', 'country', 'verdict'] as const;
+export const QUERY_TEXT_FIELDS = [
+  'title',
+  'publisher',
+  'genre',
+  'country',
+  'language',
+  'verdict',
+] as const;
 
-/** Numeric fields a term can be scoped to, with the report value behind each. */
-export const QUERY_NUMBER_FIELDS = ['gap', 'last', 'episodes'] as const;
+/** Numeric fields a term can be scoped to, with the report value behind each.
+ * `length` is in minutes, because minutes are how a listener thinks about how
+ * long an episode takes. `releases` counts the episodes across the feed's year
+ * of monthly bars, which is the number the Releases a month cell sorts on. */
+export const QUERY_NUMBER_FIELDS = ['gap', 'last', 'episodes', 'length', 'releases'] as const;
 
 /** A text field the query can name. */
 export type QueryTextField = (typeof QUERY_TEXT_FIELDS)[number];
@@ -142,7 +154,10 @@ function tokeniseQuery(
 function buildTermNode(raw: string): PodcastQueryParseResult {
   // `gap>30` and `gap:>30` both mean the same thing, because a comparison
   // reads naturally without the colon and a visitor types whichever comes out.
-  const comparison = /^(gap|last|episodes)\s*(>=|<=|>|<|=)\s*(-?\d+(?:\.\d+)?)$/i.exec(raw);
+  const comparison = new RegExp(
+    `^(${QUERY_NUMBER_FIELDS.join('|')})\\s*(>=|<=|>|<|=)\\s*(-?\\d+(?:\\.\\d+)?)$`,
+    'i'
+  ).exec(raw);
   if (comparison !== null) {
     const field = (comparison[1] ?? '').toLowerCase();
     const operator = COMPARISON_LABELS[comparison[2] ?? ''] ?? '=';
@@ -313,9 +328,22 @@ export function matchesTextQuery(haystack: string, value: string): boolean {
   return new RegExp(pattern, 'i').test(haystack);
 }
 
-/** The text a term without a field is matched against. */
-function readSearchableText(show: PodcastShow): string {
-  return `${show.title} ${show.publisher} ${show.genres.join(' ')}`;
+/**
+ * The text a term without a field is matched against.
+ *
+ * A directory matches more than the fields it hands back, so the feed's own
+ * description and newest episode title are included once it has answered: a
+ * topic word that only ever appeared in the show notes would otherwise be
+ * filtered out of a result the directory rightly returned.
+ */
+function readSearchableText(subject: PodcastQuerySubject): string {
+  return [
+    subject.show.title,
+    subject.show.publisher,
+    subject.show.genres.join(' '),
+    subject.report?.description ?? '',
+    subject.report?.latestEpisodeTitle ?? '',
+  ].join(' ');
 }
 
 /** The text in one named field. */
@@ -329,6 +357,8 @@ function readFieldText(subject: PodcastQuerySubject, field: QueryTextField): str
       return subject.show.genres.join(' ');
     case 'country':
       return subject.show.country;
+    case 'language':
+      return subject.report?.language ?? '';
     case 'verdict':
       return subject.report?.health ?? 'unknown';
   }
@@ -345,6 +375,12 @@ function readFieldNumber(subject: PodcastQuerySubject, field: QueryNumberField):
       return cadence.daysSinceLastEpisode;
     case 'episodes':
       return cadence.datedEpisodeCount;
+    case 'length':
+      return cadence.medianDurationSeconds === null
+        ? null
+        : Math.round(cadence.medianDurationSeconds / 60);
+    case 'releases':
+      return cadence.monthlyReleaseCounts.reduce((total, count) => total + count, 0);
   }
 }
 
@@ -381,7 +417,7 @@ export function matchesPodcastQuery(node: PodcastQueryNode, subject: PodcastQuer
       return !matchesPodcastQuery(node.node, subject);
     case 'text': {
       const haystack =
-        node.field === null ? readSearchableText(subject.show) : readFieldText(subject, node.field);
+        node.field === null ? readSearchableText(subject) : readFieldText(subject, node.field);
       return matchesTextQuery(haystack, node.value);
     }
     case 'number': {
@@ -389,4 +425,46 @@ export function matchesPodcastQuery(node: PodcastQueryNode, subject: PodcastQuer
       return actual !== null && compareNumbers(actual, node.operator, node.value);
     }
   }
+}
+
+/**
+ * The words to send to a directory, taken out of a parsed query.
+ *
+ * The box holds one language, but a directory search only understands a set of
+ * words, so this takes the positive ones and leaves the rest to the local
+ * matcher: `water AND NOT verdict:dead` searches `water` and filters the rest,
+ * and a query of nothing but `gap>30` searches nothing at all.
+ *
+ * Words inside a `NOT` are skipped, because asking Apple for a show and then
+ * discarding it wastes the one request the app makes per search. Wildcards are
+ * stripped rather than sent, and a word shorter than two characters is dropped
+ * because no directory search accepts one.
+ */
+export function extractPodcastSearchTerm(node: PodcastQueryNode | null): string {
+  if (node === null) return '';
+
+  /** Minimum a directory will accept as a search term. */
+  const MINIMUM_TERM_LENGTH = 2;
+
+  const collect = (current: PodcastQueryNode, negated: boolean): string[] => {
+    switch (current.kind) {
+      case 'and':
+      case 'or':
+        return current.nodes.flatMap((child) => collect(child, negated));
+      case 'not':
+        return collect(current.node, true);
+      case 'number':
+        return [];
+      case 'text': {
+        if (negated) return [];
+        // `verdict:` is a fixed vocabulary rather than a topic, so it filters
+        // locally and is never sent to a directory.
+        if (current.field === 'verdict') return [];
+        const words = current.value.replace(/[*?]/g, '').trim();
+        return words.length >= MINIMUM_TERM_LENGTH ? [words] : [];
+      }
+    }
+  };
+
+  return collect(node, false).join(' ').slice(0, MAX_QUERY_LENGTH);
 }

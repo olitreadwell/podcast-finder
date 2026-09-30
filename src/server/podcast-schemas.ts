@@ -6,10 +6,9 @@
 import { z } from 'zod';
 
 import { MAX_FEEDS_PER_REQUEST } from '@/lib/podcast-finder/feed-report';
-import { APPLE_CHARTS_MAX_LIMIT } from '@/lib/podcast-finder/apple-charts';
-import { ITUNES_MAX_LIMIT } from '@/lib/podcast-finder/itunes-search';
 
-/** Query string the Apple search adapter accepts. */
+/** Query string the merged search adapter accepts. A merged search sets its own
+ * row budget, so there is nothing here for a visitor to tune. */
 export const podcastSearchQuerySchema = z.object({
   term: z.string().trim().min(2, 'Search needs at least two characters.').max(120),
   country: z
@@ -17,12 +16,11 @@ export const podcastSearchQuerySchema = z.object({
     .regex(/^[a-z]{2}$/)
     .optional(),
   genreId: z.coerce.number().int().positive().optional(),
-  limit: z.coerce.number().int().min(1).max(ITUNES_MAX_LIMIT).optional(),
 });
 
 /** One show as the search route serialises it. */
 export const podcastShowSchema = z.object({
-  source: z.enum(['apple', 'charts', 'fyyd', 'archive']),
+  source: z.enum(['apple', 'fyyd', 'archive']),
   sourceKey: z.string(),
   appleId: z.number().int().nullable(),
   title: z.string(),
@@ -38,8 +36,22 @@ export const podcastShowSchema = z.object({
   explicit: z.boolean(),
 });
 
-/** Body of a successful GET /api/podcast-search response. */
-export const podcastSearchResponseSchema = z.object({ shows: z.array(podcastShowSchema) });
+/** How many rows one directory contributed to a merged search. */
+export const podcastSourceCountSchema = z.object({
+  source: z.enum(['apple', 'fyyd', 'archive']),
+  count: z.number().int(),
+});
+
+/** Body of a successful GET /api/podcast-search response. Every directory is
+ * asked at once, so the body says what each contributed and which ones failed.
+ * Archive items are answered separately: they are extra reading, not rows in the
+ * table, because they have no feed to check. */
+export const podcastSearchResponseSchema = z.object({
+  shows: z.array(podcastShowSchema),
+  counts: z.array(podcastSourceCountSchema),
+  archiveItems: z.array(podcastShowSchema),
+  unavailable: z.array(z.string()),
+});
 
 /** Query string the publisher lookup route accepts. */
 export const podcastPublisherQuerySchema = z.object({
@@ -52,26 +64,6 @@ export const podcastPublisherQuerySchema = z.object({
 
 /** Body of a successful GET /api/publisher-shows response. */
 export const podcastPublisherResponseSchema = z.object({ shows: z.array(podcastShowSchema) });
-
-/** Query string the charts route accepts. A chart has no search term: it is a
- * storefront's ranked list. */
-export const podcastChartsQuerySchema = z.object({
-  country: z
-    .string()
-    .regex(/^[a-z]{2}$/)
-    .default('us'),
-  limit: z.coerce.number().int().min(1).max(APPLE_CHARTS_MAX_LIMIT).optional(),
-});
-
-/** Query string the fyyd and Archive routes accept: both are term searches. */
-export const podcastDirectorySearchQuerySchema = z.object({
-  term: z.string().trim().min(2, 'Search needs at least two characters.').max(120),
-  limit: z.coerce.number().int().min(1).max(100).optional(),
-});
-
-/** Body of a successful directory search response. Charts, fyyd and the
- * Archive all answer the same shape as an Apple search. */
-export const podcastDirectoryShowsResponseSchema = z.object({ shows: z.array(podcastShowSchema) });
 
 /** Body of a POST /api/podcast-status request. */
 export const podcastStatusBodySchema = z.object({
@@ -116,6 +108,7 @@ export const podcastFeedReportSchema = z.object({
   feedTitle: z.string().nullable(),
   description: z.string().nullable(),
   latestEpisodeTitle: z.string().nullable(),
+  language: z.string().nullable(),
   health: podcastHealthSchema.nullable(),
   claim: podcastCadenceClaimSchema.nullable(),
   claimMismatch: podcastCadenceMismatchSchema.nullable(),

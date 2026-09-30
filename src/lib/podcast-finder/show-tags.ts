@@ -6,16 +6,8 @@
 // schedule and still be a bad recommendation (four episodes, wildly uneven
 // gaps), so the tags carry the exceptions next to the verdict.
 
-import {
-  describeShowHealth,
-  formatDaysSinceLastEpisode,
-  formatEpisodeDuration,
-  formatGapDays,
-  type ShowHealth,
-} from './episode-cadence';
+import { describeShowHealth, type ShowHealth } from './episode-cadence';
 import type { CadenceMismatch } from './cadence-claim';
-import type { PodcastFeedReport } from './feed-report';
-import type { PodcastShow } from './itunes-search';
 
 /** Colour tone a tag badge uses, matching the health badge palette. */
 export type ShowTagTone = 'live' | 'warning' | 'stale' | 'gone' | 'unknown';
@@ -89,16 +81,6 @@ export function describePodcastShowTags(input: ShowTagInput): PodcastShowTag[] {
   return tags;
 }
 
-/** Order the results list can be sorted in. */
-export type PodcastSortOrder = 'relevance' | 'newest' | 'health';
-
-/** How the sort options are labelled in the page. */
-export const PODCAST_SORT_OPTIONS: ReadonlyArray<{ value: PodcastSortOrder; label: string }> = [
-  { value: 'newest', label: 'Newest episode' },
-  { value: 'health', label: 'Best condition' },
-  { value: 'relevance', label: 'Apple relevance' },
-];
-
 /** Rank a verdict so "active" sorts ahead of "dead". */
 export function rankShowHealth(health: ShowHealth | null): number {
   switch (health) {
@@ -115,90 +97,4 @@ export function rankShowHealth(health: ShowHealth | null): number {
     case null:
       return 5;
   }
-}
-
-/**
- * Sort shows for the results list. Health and newest both fall back to the
- * directory's order for shows whose feeds have not answered yet, so the list
- * never looks shuffled while statuses are still arriving.
- */
-export function sortPodcastShows(
-  shows: readonly PodcastShow[],
-  healthBySourceKey: ReadonlyMap<string, ShowHealth>,
-  order: PodcastSortOrder
-): PodcastShow[] {
-  const sorted = [...shows];
-  if (order === 'relevance') return sorted;
-
-  if (order === 'health') {
-    return sorted.sort((left, right) => {
-      const byHealth =
-        rankShowHealth(healthBySourceKey.get(left.sourceKey) ?? null) -
-        rankShowHealth(healthBySourceKey.get(right.sourceKey) ?? null);
-      if (byHealth !== 0) return byHealth;
-      return (right.latestReleaseAt?.getTime() ?? 0) - (left.latestReleaseAt?.getTime() ?? 0);
-    });
-  }
-
-  return sorted.sort(
-    (left, right) =>
-      (right.latestReleaseAt?.getTime() ?? 0) - (left.latestReleaseAt?.getTime() ?? 0)
-  );
-}
-
-/** One labelled fact on a result card. */
-export interface ShowFact {
-  /** Short label, e.g. "Usual gap". */
-  label: string;
-  /** The value, already written for a reader, e.g. "every 7 days". */
-  value: string;
-}
-
-/** Whole days between a date and now, or null. */
-function daysBetween(date: Date | null, now: Date): number | null {
-  if (date === null) return null;
-  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86_400_000));
-}
-
-/**
- * The facts a result card shows. Before a feed has answered, the card falls
- * back to Apple's own numbers and says so, rather than showing an empty gap
- * that reads like "this show has no episodes".
- */
-export function describePodcastShowFacts(
-  show: PodcastShow,
-  report: PodcastFeedReport | null,
-  now: Date = new Date()
-): ShowFact[] {
-  if (report?.cadence != null) {
-    return [
-      {
-        label: 'Last episode',
-        value: formatDaysSinceLastEpisode(report.cadence.daysSinceLastEpisode),
-      },
-      { label: 'Usual gap', value: formatGapDays(report.cadence.medianGapDays) },
-      {
-        label: 'Typical length',
-        value: formatEpisodeDuration(report.cadence.medianDurationSeconds),
-      },
-      { label: 'Episodes this year', value: String(report.cadence.episodesInLast365Days) },
-    ];
-  }
-
-  const facts: ShowFact[] = [
-    {
-      label: 'Last episode',
-      value: formatDaysSinceLastEpisode(daysBetween(show.latestReleaseAt, now)),
-    },
-  ];
-  if (show.episodeCount !== null) {
-    // Only the two Apple surfaces can say "per Apple"; the other directories
-    // count for themselves, and the label should not credit the wrong one.
-    const countIsApples = show.source === 'apple' || show.source === 'charts';
-    facts.push({
-      label: 'Episodes',
-      value: countIsApples ? `${show.episodeCount} per Apple` : String(show.episodeCount),
-    });
-  }
-  return facts;
 }

@@ -17,8 +17,15 @@ export const FYYD_SEARCH_ENDPOINT = 'https://api.fyyd.de/0.2/search/podcast';
 /** Results per search when the page does not say otherwise. */
 export const DEFAULT_FYYD_SEARCH_LIMIT = 25;
 
-/** Seconds the fyyd route waits before giving up. */
-export const FYYD_TIMEOUT_MS = 8_000;
+/**
+ * Milliseconds the search waits for fyyd before giving up.
+ *
+ * The merged search waits for every directory it asked, so fyyd's slowest
+ * answer is the whole table's wait. Measured here, fyyd answers a term in
+ * 1.2-1.4 s most of the time and occasionally takes nine, so a four-second cap
+ * trades that spike for a sentence in `unavailable` rather than a stalled page.
+ */
+export const FYYD_TIMEOUT_MS = 4_000;
 
 /** How the app identifies itself to fyyd. */
 export const FYYD_USER_AGENT = 'PodcastFinder/1.0 (+https://podcast-finder-ruby.vercel.app)';

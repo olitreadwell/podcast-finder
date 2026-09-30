@@ -2,36 +2,46 @@
 
 [![CI](https://github.com/olitreadwell/podcast-finder/actions/workflows/ci.yml/badge.svg)](https://github.com/olitreadwell/podcast-finder/actions/workflows/ci.yml)
 
-Find shows about a topic, then see whether they still publish. Search comes
-from Apple's keyless iTunes Search API; every verdict comes from the show's own
-RSS or Atom feed, so a page promising monthly episodes since 2019 is labelled
-for what it is.
+Find shows about a topic, then see whether they still publish. One search asks
+Apple's keyless iTunes Search API, fyyd and the Internet Archive at once; every
+verdict comes from the show's own RSS or Atom feed, so a page promising monthly
+episodes since 2019 is labelled for what it is.
 
+- **A table you can sort and filter** — one row per show, one column per thing
+  worth comparing (verdict, language, last episode, usual gap, episodes, typical
+  length, releases a month). Click a header to sort by it, either way; a row
+  with nothing measured stays last. Sorting and filtering compose, so
+  `length<30` narrows the rows while a click on Last episode orders them.
 - **A verdict per show** — active, slowing, dormant or dead, measured from the
   median gap between real publication dates rather than the schedule the show
   claims.
 - **The numbers behind it** — median gap, median episode length, episodes in
   the last 90 days, and a year of monthly release counts.
 - **Broken promises** — when a show says "weekly" and its own dates say every
-  28 days, the card says so.
-- **A filter that explains itself** — `AND`, `OR`, `NOT`, brackets, quotes,
-  fields (`title:`, `verdict:`) and numbers (`gap>30`), with a sentence when a
-  query cannot be parsed.
+  28 days, the row says so.
+- **One box for topic and query** — `AND`, `OR`, `NOT`, brackets, quotes, fields
+  (`title:`, `verdict:`) and numbers (`gap>30`), with a sentence when a query
+  cannot be parsed. The status line says how many rows the query kept.
 - **Honest failures** — a feed that cannot be read becomes a sentence on that
-  one card, never a failed batch.
+  one row, a directory that is down is named above the table, and neither fails
+  the search. Internet Archive items are extra reading below the table, never
+  rows in it: they have no feed, so they cannot be checked.
 
 Stale shows are hidden by default, with the count kept on screen.
 
 ## How it works
 
-Two routes, so the list renders as soon as Apple answers and verdicts fill in
-behind it:
+Two routes, so the table renders as soon as the directories answer and verdicts
+fill in behind it:
 
-- `GET /api/podcast-search` proxies Apple. The search API is keyless and rate
-  limits per IP, and its CORS headers are not usable, so the browser never
-  calls Apple directly.
+- `GET /api/podcast-search` asks Apple, fyyd and the Internet Archive in
+  parallel and answers one merged list of thirty Apple rows and twenty fyyd
+  rows, plus the Archive's items separately as extra reading. Each directory is
+  keyless and rate limits per IP, and Apple's CORS headers are not usable, so
+  the browser never calls a directory directly.
 - `POST /api/podcast-status` pulls up to 20 feeds, four at a time, with a 12 s
-  timeout each, and caches reports in-process for 10 minutes.
+  timeout each, and caches reports in-process for 10 minutes. The page walks a
+  page of results twenty feeds at a time, so verdicts arrive in waves.
 
 The spec of record is [docs/podcast-finder.md](docs/podcast-finder.md).
 

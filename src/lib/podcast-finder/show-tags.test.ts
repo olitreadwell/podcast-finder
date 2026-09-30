@@ -2,14 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { CadenceMismatch } from './cadence-claim';
 import type { CadenceSummary } from './episode-cadence';
-import type { PodcastShow } from './itunes-search';
-import {
-  describePodcastShowFacts,
-  describePodcastShowTags,
-  rankShowHealth,
-  sortPodcastShows,
-  type PodcastShowTag,
-} from './show-tags';
+import { describePodcastShowTags, rankShowHealth, type PodcastShowTag } from './show-tags';
 
 /** The tag inputs, with only the fields a test cares about changed. */
 function summary(overrides: Partial<CadenceSummary> = {}): Omit<CadenceSummary, 'lastEpisodeAt'> {
@@ -39,28 +32,6 @@ function tagInput(
     gapSpreadDays: cadence.gapSpreadDays,
     datedEpisodeCount: cadence.datedEpisodeCount,
     claimMismatch,
-  };
-}
-
-/** A show for the sort tests. */
-function show(overrides: Partial<PodcastShow> = {}): PodcastShow {
-  const appleId = typeof overrides.appleId === 'number' ? overrides.appleId : 1;
-  return {
-    appleId,
-    source: 'apple',
-    sourceKey: `apple:${appleId}`,
-    title: 'Weekly Wipe',
-    publisher: 'Drain Media',
-    artistId: null,
-    feedUrl: 'https://example.com/feed.xml',
-    genres: [],
-    country: 'US',
-    artworkUrl: null,
-    pageUrl: 'https://podcasts.apple.com/podcast/id1',
-    episodeCount: 10,
-    latestReleaseAt: new Date('2025-12-22T09:00:00.000Z'),
-    explicit: false,
-    ...overrides,
   };
 }
 
@@ -129,101 +100,5 @@ describe('rankShowHealth', () => {
     expect(rankShowHealth('slowing')).toBeLessThan(rankShowHealth('dormant'));
     expect(rankShowHealth('dormant')).toBeLessThan(rankShowHealth('dead'));
     expect(rankShowHealth(null)).toBeGreaterThan(rankShowHealth('dead'));
-  });
-});
-
-describe('sortPodcastShows', () => {
-  const old = show({ appleId: 1, latestReleaseAt: new Date('2025-01-01T00:00:00.000Z') });
-  const fresh = show({ appleId: 2, latestReleaseAt: new Date('2025-12-22T00:00:00.000Z') });
-  const middling = show({ appleId: 3, latestReleaseAt: new Date('2025-06-01T00:00:00.000Z') });
-
-  it('keeps Apple order for relevance', () => {
-    expect(
-      sortPodcastShows([old, fresh, middling], new Map(), 'relevance').map((entry) => entry.appleId)
-    ).toEqual([1, 2, 3]);
-  });
-
-  it('puts the newest episode first', () => {
-    expect(
-      sortPodcastShows([old, fresh, middling], new Map(), 'newest').map((entry) => entry.appleId)
-    ).toEqual([2, 3, 1]);
-  });
-
-  it('puts shows in the best condition first', () => {
-    const health = new Map([
-      ['apple:1', 'dead' as const],
-      ['apple:2', 'slowing' as const],
-      ['apple:3', 'active' as const],
-    ]);
-
-    expect(
-      sortPodcastShows([old, fresh, middling], health, 'health').map((entry) => entry.appleId)
-    ).toEqual([3, 2, 1]);
-  });
-
-  it('falls back to recency while statuses are still arriving', () => {
-    expect(
-      sortPodcastShows([old, fresh, middling], new Map(), 'health').map((entry) => entry.appleId)
-    ).toEqual([2, 3, 1]);
-  });
-
-  it('never mutates the caller’s array', () => {
-    const shows = [old, fresh];
-    sortPodcastShows(shows, new Map(), 'newest');
-
-    expect(shows.map((entry) => entry.appleId)).toEqual([1, 2]);
-  });
-});
-
-describe('describePodcastShowFacts', () => {
-  it('uses the feed’s measured numbers once it has them', () => {
-    const facts = describePodcastShowFacts(show(), {
-      feedUrl: 'https://example.com/feed.xml',
-      ok: true,
-      reason: null,
-      feedTitle: 'Weekly Wipe',
-      description: null,
-      latestEpisodeTitle: 'Episode 3',
-      health: 'active',
-      claim: null,
-      claimMismatch: null,
-      cadence: {
-        datedEpisodeCount: 30,
-        lastEpisodeAt: '2025-12-22T09:00:00.000Z',
-        daysSinceLastEpisode: 3,
-        medianGapDays: 7,
-        gapSpreadDays: 1,
-        episodesInLast30Days: 4,
-        episodesInLast90Days: 13,
-        episodesInLast365Days: 52,
-        medianDurationSeconds: 2880,
-        monthlyReleaseCounts: new Array(12).fill(4),
-      },
-    });
-
-    expect(facts).toEqual([
-      { label: 'Last episode', value: '3 days ago' },
-      { label: 'Usual gap', value: 'every 7 days' },
-      { label: 'Typical length', value: '48 min' },
-      { label: 'Episodes this year', value: '52' },
-    ]);
-  });
-
-  it('falls back to Apple’s numbers and says whose they are', () => {
-    const facts = describePodcastShowFacts(show(), null, new Date('2025-12-25T09:00:00.000Z'));
-
-    expect(facts).toEqual([
-      { label: 'Last episode', value: '3 days ago' },
-      { label: 'Episodes', value: '10 per Apple' },
-    ]);
-  });
-
-  it('answers an unknown age when Apple gave no date', () => {
-    const facts = describePodcastShowFacts(
-      show({ latestReleaseAt: null, episodeCount: null }),
-      null
-    );
-
-    expect(facts).toEqual([{ label: 'Last episode', value: 'no dated episodes' }]);
   });
 });

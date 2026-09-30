@@ -1,8 +1,8 @@
 # Spec: Podcast Finder
 
-Built by hand on **iTunes Search** — https://performance-partners.apple.com/search-api
-Catalogue id `itunes-search-affiliate.itunes.apple.com`, category Music/Video/Podcasts,
-no auth, HTTPS, no key.
+Built by hand on three keyless directories — Apple's **iTunes Search**
+(https://performance-partners.apple.com/search-api), fyyd, and the Internet
+Archive. One request asks all three and answers one merged table.
 
 ## Objective
 
@@ -16,7 +16,7 @@ The audience is one person with a topic in mind and no patience for dead feeds.
 Success is that a search answers in a couple of seconds, that every result
 carries a verdict measured from the show's own feed, and that a show which has
 stopped publishing is labelled and hidden by default rather than buried in a
-list of plausible-looking cards.
+list of plausible-looking rows.
 
 ## Tech stack
 
@@ -34,17 +34,13 @@ APIs:
   directory, keyed by the publisher's `artistId` rather than by words. Answers
   every show filed under one publisher, ahead of which Apple puts one row for
   the artist itself. That row carries no `trackId` and the parser drops it.
-  It also takes a comma-separated id list, which is how a whole chart is turned
-  into shows in one request.
-- `GET https://rss.marketingtools.apple.com/api/v2/{country}/podcasts/top/{n}/podcasts.json`
-  — Apple's chart per storefront. Keyless. Carries show ids but no feed URL, so
-  every chart is followed by one batched lookup. The shorter
-  `rss.applemarketingtools.com` name redirects here, and this host measured
-  between 1.5 s and 7.7 s for one chart, which is why this route waits longer
-  than the shared Apple timeout.
+  It also takes a comma-separated id list, which is how one batched lookup fills
+  the feeds in for a whole page of rows.
 - `GET https://api.fyyd.de/0.2/search/podcast?term=&count=&page=0` — a second
   directory, run independently of Apple, with an open API and no key. Its rows
-  carry the feed URL.
+  carry the feed URL. It answers in 1.2-1.4 s most of the time and occasionally
+  takes nine, so it is cut off at four seconds: the merged search waits for
+  every directory, and a slow fyyd would otherwise be the whole table's wait.
 - `GET https://archive.org/advancedsearch.php` — audio in the Archive's
   podcasts collection. No feed, so nothing from here can be judged.
 - Each show's own RSS or Atom feed, fetched server-side for episode `pubDate`s
@@ -53,10 +49,10 @@ APIs:
 ## Commands
 
 ```bash
-pnpm dev                                        # http://localhost:3000/podcast-finder
+pnpm dev                                        # http://localhost:3000
 pnpm test                                       # vitest, fast loop
 pnpm run check                                  # the repo gate
-node scripts/smoke-live.mjs /podcast-finder "Podcast Finder"
+node scripts/smoke-live.mjs / "Podcast Finder"
 ```
 
 ## Project structure
@@ -69,24 +65,27 @@ src/lib/podcast-finder/feed-report.ts            one JSON-safe report per feed, 
 src/lib/podcast-finder/itunes-search.ts          Apple search URL, response parsing, wire shapes
 src/lib/podcast-finder/show-tags.ts              tags, facts, sorting
 src/lib/podcast-finder/publisher-shows.ts        grouping shows by publisher
-src/lib/podcast-finder/search-query.ts           the filter box's query language
-src/lib/podcast-finder/apple-charts.ts           Apple's chart feed plus the lookup that fills feeds in
+src/lib/podcast-finder/search-query.ts           the search box's query language
+src/lib/podcast-finder/directory-search.ts       one search across every directory, merged
+src/lib/podcast-finder/directory-mix.ts          which directories answered, and how to say so
+src/lib/podcast-finder/show-table.ts             one render-ready row per show, and column sorting
 src/lib/podcast-finder/fyyd-search.ts            the second directory
 src/lib/podcast-finder/archive-search.ts         the Internet Archive, listed but not judged
 src/lib/podcast-finder/api-client.ts             the browser's calls
 src/lib/podcast-finder/analysis-cache.ts         ten-minute TTL cache for feed reports
-src/server/podcast-schemas.ts                    request and response schemas for all three routes
-src/app/api/podcast-search/route.ts              search adapter
+src/server/podcast-schemas.ts                    request and response schemas for every podcast route
+src/app/api/podcast-search/route.ts              the merged search adapter
 src/app/api/podcast-status/route.ts              feed status adapter (batched, cached, capped)
 src/app/api/publisher-shows/route.ts             publisher catalogue adapter
 src/app/page.tsx                                 the page (client component)
 docs/podcast-finder.md                           this spec
 ```
 
-Two routes rather than one, so the list appears as soon as Apple answers and the
-verdicts fill in behind it. Each route exists for a reason the browser cannot
-cover: Apple sends no CORS headers worth relying on and rate limits per IP, and
-feed hosts have to be read from somewhere that is not the visitor's browser.
+Search and verdicts are two routes, so the table appears as soon as the
+directories answer and the verdicts fill in behind it. Each route exists for a
+reason the browser cannot cover: Apple sends no CORS headers worth relying on
+and rate limits per IP, and feed hosts have to be read from somewhere that is
+not the visitor's browser.
 
 ## How a verdict is measured
 
@@ -122,38 +121,48 @@ and something else for one that always published more often than it claimed.
 
 ## Where the shows come from
 
-Four directories can answer, chosen with the Source select:
+Three directories answer one question each, all at once, and only the first two
+become rows:
 
-| Source | What it answers | Can it get a verdict? |
+| Directory | What it answers | Where it lands |
 | --- | --- | --- |
-| Apple search | shows about a topic | yes, its rows carry a feed URL |
-| Apple charts | a storefront's ranked list | yes, after one batched lookup fills the feeds in |
-| fyyd | shows about a topic | yes, its rows carry a feed URL |
-| Internet Archive | audio items about a topic | no, the Archive has items rather than feeds |
+| Apple search | shows about a topic, with the richest metadata | thirty rows in the table, feeds and all |
+| fyyd | shows about a topic, independently of Apple | twenty rows in the table, feeds and all |
+| Internet Archive | audio items about a topic | extra reading below the table, never a row |
 
-Every source is normalised to the same `PodcastShow`, which is what keeps one
-card, one sort and one verdict machinery serving all four. A row carries its
-`source` and a `sourceKey` unique inside that directory; the source key is what
-React keys on and what the verdict index is keyed by, so two directories can
-never collide in a list.
+There is no Source select: the page asks one question and every directory
+answers it. The route runs the three searches in parallel, merges Apple's and
+fyyd's rows with Apple's first and duplicates removed on the feed URL (falling
+back to title and publisher when a row has no feed), and answers the Archive's
+items separately in `archiveItems`. A directory that fails does not fail the
+search: its sentence comes back in `unavailable` and the page says so above the
+table. Only when neither Apple nor fyyd answers is the search an error.
 
-Apple's chart host is the least reliable call in the app: one storefront's top
-ten measured between 0.7 s and 25 s, and some calls answered 502 outright. So a
-chart that did answer is cached in-process for ten minutes, one retry covers a
-502, and the route waits fifteen seconds rather than the eight the lookup uses.
-A slow chart therefore costs one visitor, not every visitor for the next ten
-minutes.
+Every row is normalised to the same `PodcastShow`, which is what keeps one
+table, one sort and one verdict machinery serving both directories. A row
+carries its `source` and a `sourceKey` unique inside that directory; the source
+key is what React keys on and what the verdict index is keyed by, so two
+directories can never collide in one table.
 
-The Archive is the honest exception. Its rows are real shows with real titles
-and publishers, and no feed, so they are listed with a sentence saying they
-cannot be checked rather than a verdict they have not earned. The Archive query
-is built by reducing the visitor's term to letters, numbers, spaces, apostrophes
-and hyphens, because the term is interpolated into a query language and a
-visitor should not be able to edit the query we send.
+The status route judges twenty feeds per request, and a page of fifty rows is
+more than that, so the page walks the list twenty at a time and draws each
+batch as it lands. Verdicts arrive in waves; the live region counts them out
+loud rather than leaving the table looking half-finished. The sentence above the
+table counts what each directory actually contributed after the merge, so the
+numbers add up to the rows underneath them.
+
+The Archive is the honest exception, and the reason it is not in the table. It
+holds audio items rather than shows, with no feed, so nothing from there can be
+checked and its titles are frequently unrelated to the words that found them.
+Putting those in a table of measured shows would be padding. They are listed
+under the table instead, as links, with a sentence saying what they are. The
+Archive query is still built by reducing the visitor's term to letters, numbers,
+spaces, apostrophes and hyphens, because the term is interpolated into a query
+language and a visitor should not be able to edit the query we send.
 
 ## Following a publisher
 
-A card's publisher name is a button. The first click filters the results already
+Each row's publisher name is a button. The first click filters the rows already
 on screen, which costs nothing, and says how many of them matched. The bar that
 appears offers a second, explicit step: list everything that publisher has ever
 filed with Apple, which is one more call to the lookup endpoint.
@@ -172,19 +181,34 @@ complete.
 
 ## Filtering the results
 
-The filter box takes a small query language over the shows already on screen,
-and nothing in it fetches: every number it compares came from the feed reports
-the page asked for anyway.
+One box both searches and filters. The words go to the directories, and the same
+parsed query narrows the rows that come back, so the box says one thing and the
+table shows it. When the query removes rows the status line says how many of how
+many matched; when nothing is removed there is nothing to explain.
+
+Nothing in the query fetches: every number it compares came from the feed
+reports the page asked for anyway. A bare term is matched across the title,
+publisher, genres, the feed's own description and its newest episode title,
+because a directory matches more than the fields it hands back and a topic word
+that only appears in the show notes should not be filtered out of a result the
+directory rightly returned.
 
 - `AND`, `OR` and `NOT`, with brackets. Two terms side by side mean `AND`, and
   precedence runs `NOT`, then `AND`, then `OR`.
 - Quotes for a phrase, so `publisher:"Pipe Media"` is one value and a show
   titled `and` can still be found.
-- Fields: `title`, `publisher`, `genre`, `country`, `verdict`. A term with no
-  field searches title, publisher and genres together.
-- Numbers: `gap`, `last` and `episodes`, compared with `>`, `<`, `>=`, `<=` or
-  `=`, written `gap>30` or `gap:>30`. The values come from the median gap, the
-  days since the newest episode, and the count of dated episodes.
+- Fields: `title`, `publisher`, `genre`, `country`, `language`, `verdict`. A
+  term with no field searches the text named above.
+- Numbers: `gap`, `last`, `episodes`, `length` and `releases`, compared with
+  `>`, `<`, `>=`, `<=` or `=`, written `gap>30` or `gap:>30`. The values come
+  from the median gap, the days since the newest episode, the count of dated
+  episodes, the median episode length in minutes, and the releases across the
+  feed's year of monthly bars, so `length>45` reads the way a listener thinks
+  about a commute and `releases<2` finds the shows that barely publish.
+- A `language:` term and a `length` number both need an answered feed, because
+  the feed is what declares a language and what measures an episode. The
+  language is reduced to its primary subtag (`en-GB` becomes `en`), which is
+  the granularity a filter can actually use.
 - `*` for any run of characters and `?` for one. Everything else is literal.
 
 Raw regular expressions are deliberately not accepted. A pasted pattern can
@@ -195,9 +219,43 @@ new dependency and lets an error name the field that was misspelled instead of
 saying "syntax error".
 
 A numeric term needs an answered feed, so a show whose report has not arrived
-does not match `gap>30` rather than matching by accident. The filter is not
-saved with the other filters in `localStorage`: a query answers a question the
-visitor asked at the time, and a restored one looks like a bug.
+does not match `gap>30` rather than matching by accident. The box is not saved
+with the other filters in `localStorage`: a query answers a question the visitor
+asked at the time, and a restored one looks like a bug. The storefront, genre,
+sort and hide-stale filter are saved.
+
+## The results table
+
+Rows are shows; columns are the things a listener compares. Every measured
+column sorts by clicking its header, and the header says which way it is running
+(`aria-sort`, plus an arrow). The columns are:
+
+| Column | Sorts on | Comes from |
+| --- | --- | --- |
+| Show | title | the directory, with the publisher, genres and storefront beneath it |
+| Verdict | best condition first | the feed: active, slowing, dormant or dead, plus its exception badges |
+| Language | the declared language | the feed only; "not known" before one answers |
+| Last episode | age of the newest episode | the feed, falling back to the directory's own date until it answers |
+| Usual gap | median gap in days | the feed only; "not measured" before one answers |
+| Episodes | count | the feed's dated episodes, or the directory's catalogue count, named with whose it is |
+| Typical length | median episode length | the feed only |
+| Releases a month | releases across the twelve bars | the feed's year of monthly counts |
+
+An unmeasured cell sorts last whichever way the column runs, so flipping a sort
+never floats the rows whose feeds have not answered to the top of a column they
+have no number for. Each number carries a bar drawn against the largest value in
+the same column, which makes a column readable as a shape; the number beside it
+is what a screen reader gets.
+
+Sorting is client-side over the rows already on screen: `sortPodcastTableRows`
+never refetches, and a row's sort value is the same number the cell displays.
+The sort column and direction are saved with the other filters.
+
+Sorting and filtering are independent and compose: `length<30` narrows the rows
+to short episodes while a click on Last episode still decides their order. Every
+column that holds a measurement has both a sort and a way to filter it through
+the box, which is the point of keeping one query language rather than a row of
+per-column inputs.
 
 ## Code style
 
@@ -217,21 +275,26 @@ definitions they explain.
 
 ## Testing strategy
 
-- Unit (`src/lib/podcast-finder/*.test.ts`): chart parsing and the lookup that
-  follows it, fyyd and Archive mapping (including a term that tries to edit the
-  Archive query), query parsing and matching
+- Unit (`src/lib/podcast-finder/*.test.ts`): the merge across every directory
+  (order, deduplication, counting, a directory that fails), fyyd and Archive
+  mapping (including a term that tries to edit the Archive query), query parsing
+  and matching
   (precedence, quotes, fields, wildcards, numeric comparisons, unanswered
   feeds), cadence maths and verdict
   thresholds, claim reading and mismatch wording, RSS and Atom extraction
   (CDATA, entities, broken dates, 300-item cap), duration parsing in three
-  formats, Apple response parsing with malformed rows, tag and sort rules,
+  formats, Apple response parsing with malformed rows, tag rules, table rows and
+  every column sort (including rows with nothing to compare),
   TTL cache expiry with an injected clock, batch order, failure isolation,
   concurrency ceiling, and the API client's error wording.
-- Component (`src/app/podcast-finder/page.test.tsx`): heading and link home,
+- Component (`src/app/page.test.tsx`): heading and link home,
   example topics, a search that labels a dead show and quotes its broken
   promise, the default filter hiding dormant and dead shows while saying how
-  many, unticking it bringing them back, a failed search, a failed feed check
-  falling back to Apple's numbers, and a show with no feed URL saying so.
+  many, unticking it bringing them back, sorting by a column header, filtering
+  with a query in the same box, a query that cannot be parsed keeping the rows,
+  a merged search naming where the rows came from and which directory did not
+  answer, a failed search, a failed feed check falling back to the directories'
+  numbers, and a show with no feed URL saying so.
 - Live: `node scripts/smoke-live.mjs / "Podcast Finder"` against production
   after the deploy.
 
@@ -254,21 +317,23 @@ list, under the repo's 70% threshold.
 
 - `https://podcast-finder-ruby.vercel.app` returns 200 and contains the text
   `Podcast Finder`.
-- A search for a topic lists shows with a verdict, a last-episode age, a median
-  gap, and a median episode length within a few seconds.
+- A search for a topic lists rows with a verdict, a last-episode age, a median
+  gap, and a median episode length within a few seconds, drawn from every
+  directory that answered.
+- Clicking a column header sorts the table by that column and says so with
+  `aria-sort`; a row with nothing measured stays last either way.
 - A show that stopped publishing is tagged Dormant or Dead and hidden by
   default; the count of hidden shows is stated on screen.
 - A show whose notes promise a cadence its dates do not support shows the
   mismatch sentence.
 - One unreachable feed host does not stop the other results from getting
   verdicts.
-- A publisher name on a card can be clicked to narrow the list, and the full
+- A publisher name on a row can be clicked to narrow the table, and the full
   catalogue behind it can be listed without leaving the page.
-- The filter box narrows the loaded shows, and a query it cannot parse is
+- The search box narrows the loaded rows as well as searching, and a query it cannot parse is
   explained rather than silently returning nothing.
-- Switching the Source to charts lists a storefront's chart, to fyyd lists a
-  second directory's results, and to the Internet Archive lists items that say
-  plainly they cannot be checked.
+- One search returns rows from Apple, fyyd and the Internet Archive, and the
+  Archive's rows say plainly they cannot be checked.
 - `pnpm run check` is green with the new files included.
 - No new npm dependency.
 
@@ -278,7 +343,7 @@ list, under the repo's 70% threshold.
   Filters persist in `localStorage`; a search is something the visitor is doing
   right now.
 - Apple's `releaseDate` is not proof of the newest episode. Starting answer:
-  label it as Apple's number until the feed answers, which the card already
+  label it as the directory's number until the feed answers, which the table already
   does.
 - Full-text search inside transcripts would need a key and a different data
   source (Podcast Index, Listen Notes). Out of scope here; the cadence question

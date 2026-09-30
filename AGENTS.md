@@ -15,9 +15,9 @@ editing anything.
 
 ## What this is
 
-Podcast Finder: search Apple's keyless podcast directory for shows about a
-topic, then read each show's own feed and label it active, slowing, dormant or
-dead from the real gaps between publication dates. Built on the
+Podcast Finder: search every keyless podcast directory for shows about a topic,
+then read each show's own feed and label it active, slowing, dormant or dead
+from the real gaps between publication dates. Built on the
 `olitreadwell/template` baseline, so everything a new repo needs is already
 wired: tests, coverage, lint, format, typecheck, build, smoke, e2e, CI,
 Docker, docs.
@@ -25,12 +25,14 @@ Docker, docs.
 Where the app's own rules live:
 
 - `docs/podcast-finder.md` is the spec of record: what the verdicts mean, why
-  the two routes are split, and which numbers the cards show.
+  search and verdicts are separate routes, and which numbers the table shows.
 - `src/lib/podcast-finder/` is the domain: feed fetching and parsing, gap
-  maths, verdicts, the promised-versus-measured cadence comparison.
-- `src/app/api/podcast-search` and `src/app/api/podcast-status` are the only
-  server routes the page calls. Their request schemas live in
-  `src/server/podcast-schemas.ts` so `/docs` cannot drift from the server.
+  maths, verdicts, the promised-versus-measured cadence comparison, the merge
+  across directories, and the rows the table sorts.
+- `src/app/api/podcast-search`, `src/app/api/podcast-status` and
+  `src/app/api/publisher-shows` are the only server routes the page calls.
+  Their request schemas live in `src/server/podcast-schemas.ts` so `/docs`
+  cannot drift from the server.
 
 ## Non-negotiables
 

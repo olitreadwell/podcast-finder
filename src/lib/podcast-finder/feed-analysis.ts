@@ -50,6 +50,8 @@ export interface PodcastFeed {
   title: string | null;
   /** Show description, HTML stripped, or null. */
   description: string | null;
+  /** Language the feed declares, reduced to its primary subtag, or null. */
+  language: string | null;
   /** Author or owner name, or null. */
   author: string | null;
   /** Channel `lastBuildDate`, or null. */
@@ -101,6 +103,29 @@ export function readFeedTagText(xml: string, tag: string): string | null {
   if (match === null) return null;
   const text = stripFeedMarkup(match[1] ?? '');
   return text.length > 0 ? text : null;
+}
+
+/**
+ * The language a feed declares, or null.
+ *
+ * RSS writes `<language>en-us</language>` and Atom writes `xml:lang` on its
+ * `<feed>` element, so both are read. Either way the answer is reduced to the
+ * primary subtag: `en-us`, `en-GB` and `en` are the same answer to "what
+ * language is this in", and a column that shows all three cannot be filtered.
+ *
+ * This is the feed's own claim, not a measurement of the audio. A show whose
+ * notes were written once can be as wrong about its language as it is about its
+ * episode schedule.
+ */
+export function readFeedLanguage(xml: string): string | null {
+  const declared =
+    readFeedTagText(xml, 'language') ??
+    /<feed\b[^>]*\bxml:lang=["']([^"']+)["']/i.exec(xml)?.[1] ??
+    null;
+  if (declared === null) return null;
+
+  const primary = declared.trim().toLowerCase().split(/[-_]/)[0] ?? '';
+  return /^[a-z]{2,3}$/.test(primary) ? primary : null;
 }
 
 /**
@@ -210,6 +235,7 @@ export function parsePodcastFeed(xml: string): FeedParseResult {
         readFeedTagText(channel, 'itunes:summary') ??
         readFeedTagText(channel, 'description') ??
         readFeedTagText(channel, 'subtitle'),
+      language: readFeedLanguage(xml),
       author: readFeedTagText(channel, 'itunes:author') ?? readFeedTagText(channel, 'author'),
       lastBuildDate: readFeedDate(readFeedTagText(channel, 'lastBuildDate')),
       episodes,

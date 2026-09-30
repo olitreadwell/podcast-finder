@@ -26,6 +26,7 @@ function feedXml(options: {
   gapDays: number;
   lastDaysAgo?: number;
   episodes?: number;
+  language?: string;
 }): string {
   const count = options.episodes ?? 6;
   const lastDaysAgo = options.lastDaysAgo ?? options.gapDays;
@@ -37,6 +38,7 @@ function feedXml(options: {
   return `<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"><channel>
     <title>Weekly Wipe</title>
     <description>${options.claim}</description>
+    ${options.language === undefined ? '' : `<language>${options.language}</language>`}
     <itunes:author>Drain Media</itunes:author>
     ${items.join('')}
   </channel></rss>`;
@@ -80,7 +82,18 @@ describe('buildPodcastFeedReport', () => {
     expect(report.cadence?.medianDurationSeconds).toBe(2400);
     expect(report.cadence?.lastEpisodeAt).toBe('2025-12-25T00:00:00.000Z');
     expect(report.latestEpisodeTitle).toBe('Episode 6');
+    expect(report.language).toBeNull();
     expect(report.claimMismatch).toBeNull();
+  });
+
+  it('carries the language the feed declares', () => {
+    const report = buildPodcastFeedReport(
+      'https://example.com/feed.xml',
+      fetched(feedXml({ claim: 'A weekly look at drains.', gapDays: 7, language: 'en-GB' })),
+      NOW
+    );
+
+    expect(report.language).toBe('en');
   });
 
   it('catches a show that still says weekly and stopped publishing', () => {
@@ -114,6 +127,7 @@ describe('buildPodcastFeedReport', () => {
       feedTitle: null,
       description: null,
       latestEpisodeTitle: null,
+      language: null,
       health: null,
       claim: null,
       claimMismatch: null,

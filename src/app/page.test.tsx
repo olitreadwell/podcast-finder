@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 import PodcastFinderPage from './page';
@@ -89,6 +89,9 @@ const fetchMock = vi.fn();
 /** Route the page's calls to canned answers. */
 function stubRoutes(options: {
   shows: unknown[];
+  counts?: Array<{ source: string; count: number }>;
+  archiveItems?: unknown[];
+  unavailable?: string[];
   reports?: unknown[];
   searchStatus?: number;
   searchError?: string;
@@ -97,9 +100,6 @@ function stubRoutes(options: {
   publisherShows?: unknown[];
   publisherStatus?: number;
   publisherError?: string;
-  chartShows?: unknown[];
-  archiveShows?: unknown[];
-  fyydShows?: unknown[];
 }) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -107,16 +107,12 @@ function stubRoutes(options: {
       if (options.searchStatus !== undefined && options.searchStatus >= 400) {
         return jsonResponse({ error: options.searchError ?? 'nope' }, options.searchStatus);
       }
-      return jsonResponse({ shows: options.shows });
-    }
-    if (url.includes('/api/podcast-charts')) {
-      return jsonResponse({ shows: options.chartShows ?? [] });
-    }
-    if (url.includes('/api/podcast-fyyd')) {
-      return jsonResponse({ shows: options.fyydShows ?? [] });
-    }
-    if (url.includes('/api/podcast-archive')) {
-      return jsonResponse({ shows: options.archiveShows ?? [] });
+      return jsonResponse({
+        shows: options.shows,
+        counts: options.counts ?? [],
+        archiveItems: options.archiveItems ?? [],
+        unavailable: options.unavailable ?? [],
+      });
     }
     if (url.includes('/api/publisher-shows')) {
       if (options.publisherStatus !== undefined && options.publisherStatus >= 400) {
@@ -134,12 +130,21 @@ function stubRoutes(options: {
   });
 }
 
-/** Type a topic and wait for the first card. */
+/** Type a search and wait for the first request. */
 async function searchFor(topic: string) {
   const user = userEvent.setup();
-  await user.type(screen.getByLabelText('Topic'), topic);
+  await user.type(screen.getByLabelText('Search'), topic);
   await waitFor(() => expect(fetchMock).toHaveBeenCalled(), { timeout: 2000 });
   return user;
+}
+
+/** The show titles in the table, top to bottom. */
+function shownTitles(): string[] {
+  const table = screen.getByRole('table');
+  return within(table)
+    .getAllByRole('row')
+    .slice(1)
+    .map((row) => row.querySelector('a')?.textContent ?? '');
 }
 
 beforeEach(() => {
@@ -232,7 +237,7 @@ describe('PodcastFinderPage', () => {
     expect(screen.getByText('Apple answered 429.')).toBeTruthy();
   });
 
-  it('keeps Apple’s numbers and says so when feeds cannot be checked', async () => {
+  it('keeps each directory’s numbers and says so when feeds cannot be checked', async () => {
     stubRoutes({
       shows: [wireShow({ latestReleaseAt: '2025-12-22T09:00:00.000Z' })],
       statusStatus: 400,
@@ -244,7 +249,7 @@ describe('PodcastFinderPage', () => {
 
     expect(await screen.findByText(/Feeds could not be checked/)).toBeTruthy();
     expect(screen.getByText('Live Drains')).toBeTruthy();
-    expect(screen.getByText('Episodes')).toBeTruthy();
+    expect(screen.getByText('120 per Apple')).toBeTruthy();
   });
 
   it('says when a show has no feed to check', async () => {
@@ -256,16 +261,84 @@ describe('PodcastFinderPage', () => {
     expect(await screen.findByText(/Apple returned no feed URL/)).toBeTruthy();
   });
 
+  it('shows Internet Archive items beside the table rather than in it', async () => {
+    stubRoutes({
+      shows: [wireShow({ title: 'Open Science Weekly' })],
+      reports: [report()],
+      archiveItems: [
+        wireShow({
+          source: 'archive',
+          sourceKey: 'archive:osr141',
+          appleId: null,
+          artistId: null,
+          feedUrl: null,
+          title: 'Open Science Radio 141',
+          publisher: 'Open Science Radio',
+        }),
+      ],
+    });
+    render(<PodcastFinderPage />);
+
+    await searchFor('open science');
+
+    expect(
+      await screen.findByRole('heading', { name: 'Also on the Internet Archive (1)' })
+    ).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open Science Radio 141' })).toBeTruthy();
+    expect(screen.getByText(/audio items rather than shows/)).toBeTruthy();
+    // The Archive item is extra reading, so it is not a row in the table.
+    expect(shownTitles()).toEqual(['Open Science Weekly']);
+  });
+
+  it('says where the merged rows came from, and which directory did not answer', async () => {
+    stubRoutes({
+      shows: [
+        wireShow(),
+        wireShow({
+          appleId: null,
+          source: 'fyyd',
+          sourceKey: 'fyyd:9',
+          title: 'Drain Weekly',
+          publisher: 'Pipe Media',
+          artistId: null,
+          feedUrl: 'https://example.com/drain.xml',
+        }),
+        wireShow({
+          appleId: null,
+          source: 'archive',
+          sourceKey: 'archive:osr141',
+          title: 'OSR141 Welcome',
+          artistId: null,
+          feedUrl: null,
+        }),
+      ],
+      counts: [
+        { source: 'apple', count: 1 },
+        { source: 'fyyd', count: 1 },
+        { source: 'archive', count: 1 },
+      ],
+      unavailable: ['fyyd answered 503.'],
+    });
+    render(<PodcastFinderPage />);
+
+    await searchFor('drains');
+
+    expect(
+      await screen.findByText('1 from Apple, 1 from fyyd, 1 from the Internet Archive.')
+    ).toBeTruthy();
+    expect(screen.getByText('fyyd answered 503.')).toBeTruthy();
+  });
+
   it('says when nothing matched', async () => {
     stubRoutes({ shows: [], reports: [] });
     render(<PodcastFinderPage />);
 
     await searchFor('drains');
 
-    expect(await screen.findByText('No shows matched that topic.')).toBeTruthy();
+    expect(await screen.findByText('No shows matched that search.')).toBeTruthy();
   });
 
-  it('narrows the results to one publisher when its name is clicked', async () => {
+  it('narrows the rows to one publisher when its name is clicked', async () => {
     stubRoutes({
       shows: [
         wireShow(),
@@ -306,7 +379,7 @@ describe('PodcastFinderPage', () => {
     });
     render(<PodcastFinderPage />);
 
-    const user = await searchFor('drains');
+    const user = await searchFor('drain');
     await screen.findByText('Live Drains');
 
     await user.click(screen.getByRole('button', { name: 'Drain Media' }));
@@ -334,7 +407,36 @@ describe('PodcastFinderPage', () => {
     expect(await screen.findByText(/Could not list every show from Drain Media/)).toBeTruthy();
   });
 
-  it('filters the loaded shows with the filter box', async () => {
+  it('sorts the rows by whichever column header is clicked', async () => {
+    stubRoutes({
+      shows: [
+        wireShow(),
+        wireShow({ appleId: 2, title: 'Dead Drains', feedUrl: 'https://example.com/dead.xml' }),
+      ],
+      reports: [report(), deadReport()],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drains');
+    await screen.findByText('Live Drains');
+    await user.click(screen.getByLabelText(/hide shows that stopped publishing/i));
+
+    // The table starts on the newest episode, so the live show leads.
+    await waitFor(() => expect(shownTitles()).toEqual(['Live Drains', 'Dead Drains']));
+
+    await user.click(screen.getByRole('button', { name: 'Show' }));
+
+    expect(shownTitles()).toEqual(['Dead Drains', 'Live Drains']);
+    expect(screen.getByRole('columnheader', { name: /show/i }).getAttribute('aria-sort')).toBe(
+      'ascending'
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Show' }));
+
+    expect(shownTitles()).toEqual(['Live Drains', 'Dead Drains']);
+  });
+
+  it('filters the rows with a query typed into the same box', async () => {
     stubRoutes({
       shows: [
         wireShow(),
@@ -350,27 +452,29 @@ describe('PodcastFinderPage', () => {
     });
     render(<PodcastFinderPage />);
 
-    const user = await searchFor('drains');
+    const user = await searchFor('drain');
     await screen.findByText('Live Drains');
+    expect(screen.getByText('Drain Weekly')).toBeTruthy();
 
-    await user.type(screen.getByLabelText('Filter'), 'publisher:pipe');
+    await user.type(screen.getByLabelText('Search'), ' publisher:pipe');
 
+    expect(await screen.findByText(/1 of 2 match that query\./)).toBeTruthy();
     expect(screen.queryByText('Live Drains')).toBeNull();
     expect(screen.getByText('Drain Weekly')).toBeTruthy();
-    expect(screen.getByText(/1 of 2 match the filter\./)).toBeTruthy();
   });
 
-  it('explains a filter it cannot parse and keeps the results', async () => {
+  it('explains a query it cannot parse and keeps the rows', async () => {
     stubRoutes({ shows: [wireShow()], reports: [report()] });
     render(<PodcastFinderPage />);
 
     const user = await searchFor('drains');
     await screen.findByText('Live Drains');
 
-    await user.type(screen.getByLabelText('Filter'), 'gap:soon');
+    await user.type(screen.getByLabelText('Search'), ' gap:soon');
 
     expect(await screen.findByText('`gap:` wants a number, as in `gap>30`.')).toBeTruthy();
-    expect(screen.getByText('Live Drains')).toBeTruthy();
+    await waitFor(() => expect(screen.getByText('Live Drains')).toBeTruthy());
+    expect(screen.queryByText('No shows matched that search.')).toBeNull();
   });
 
   it('matches the numbers the feed measured', async () => {
@@ -383,61 +487,18 @@ describe('PodcastFinderPage', () => {
     });
     render(<PodcastFinderPage />);
 
-    const user = await searchFor('drains');
+    const user = await searchFor('drain');
     await screen.findByText('Live Drains');
-    // The dead show is hidden by default, so let the filter be what removes it.
+    // The dead show is hidden by default, so let the query be what removes it.
     await user.click(screen.getByLabelText(/hide shows that stopped publishing/i));
 
-    await user.type(screen.getByLabelText('Filter'), 'last>100');
+    await user.type(screen.getByLabelText('Search'), ' last>100');
 
-    expect(await screen.findByText('Dead Drains')).toBeTruthy();
-    expect(screen.queryByText('Live Drains')).toBeNull();
+    await waitFor(() => expect(screen.queryByText('Live Drains')).toBeNull());
+    expect(screen.getByText('Dead Drains')).toBeTruthy();
   });
 
-  it('asks Apple for a chart when that source is chosen, with no topic needed', async () => {
-    stubRoutes({
-      shows: [],
-      chartShows: [wireShow({ source: 'charts', sourceKey: 'charts:1' })],
-      reports: [report()],
-    });
-    render(<PodcastFinderPage />);
-
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText('Source'), 'charts');
-
-    expect(await screen.findByText('Live Drains')).toBeTruthy();
-    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
-    expect(urls.some((url) => url.includes('/api/podcast-charts'))).toBe(true);
-    expect(urls.some((url) => url.includes('/api/podcast-search'))).toBe(false);
-  });
-
-  it('says an Internet Archive item has no feed to check', async () => {
-    stubRoutes({
-      shows: [],
-      archiveShows: [
-        wireShow({
-          source: 'archive',
-          sourceKey: 'archive:osr141',
-          appleId: null,
-          feedUrl: null,
-          title: 'OSR141 Welcome',
-        }),
-      ],
-    });
-    render(<PodcastFinderPage />);
-
-    const user = userEvent.setup();
-    await user.selectOptions(screen.getByLabelText('Source'), 'archive');
-    await user.type(screen.getByLabelText('Topic'), 'open science');
-
-    expect(
-      await screen.findByText(
-        'The Internet Archive serves these as items, not feeds, so this one cannot be checked.'
-      )
-    ).toBeTruthy();
-  });
-
-  it('searches the chosen storefront and genre', async () => {
+  it('searches the chosen storefront', async () => {
     stubRoutes({ shows: [wireShow()], reports: [report()] });
     render(<PodcastFinderPage />);
 
@@ -450,5 +511,74 @@ describe('PodcastFinderPage', () => {
       const urls = fetchMock.mock.calls.map((call) => String(call[0]));
       expect(urls.some((url) => url.includes('country=nz'))).toBe(true);
     });
+  });
+
+  it('filters by typical length while sorting by another column', async () => {
+    stubRoutes({
+      shows: [
+        wireShow({ title: 'Live Drains', feedUrl: 'https://example.com/live.xml' }),
+        wireShow({ appleId: 2, title: 'Dead Drains', feedUrl: 'https://example.com/dead.xml' }),
+        wireShow({ appleId: 3, title: 'Mini Drains', feedUrl: 'https://example.com/mini.xml' }),
+      ],
+      reports: [
+        report({ feedUrl: 'https://example.com/live.xml' }),
+        report({
+          feedUrl: 'https://example.com/dead.xml',
+          cadence: {
+            ...report().cadence,
+            medianDurationSeconds: 600,
+            daysSinceLastEpisode: 400,
+          },
+        }),
+        report({
+          feedUrl: 'https://example.com/mini.xml',
+          cadence: {
+            ...report().cadence,
+            medianDurationSeconds: 720,
+            daysSinceLastEpisode: 1,
+          },
+        }),
+      ],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drain');
+    await screen.findByText('Live Drains');
+    await waitFor(() => expect(shownTitles()).toHaveLength(3));
+
+    await user.type(screen.getByLabelText('Search'), ' length<30');
+
+    // Short episodes only, still sorted by the newest episode.
+    await waitFor(() => expect(shownTitles()).toEqual(['Mini Drains', 'Dead Drains']));
+    expect(screen.getByText(/2 of 3 match that query\./)).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Show' }));
+
+    expect(shownTitles()).toEqual(['Dead Drains', 'Mini Drains']);
+  });
+
+  it('checks feeds twenty at a time and keeps every row', async () => {
+    const shows = Array.from({ length: 25 }, (_, index) =>
+      wireShow({
+        appleId: index + 1,
+        title: `Drain ${index}`,
+        feedUrl: `https://example.com/${index}.xml`,
+      })
+    );
+    stubRoutes({ shows, reports: [] });
+    render(<PodcastFinderPage />);
+
+    await searchFor('drain');
+
+    await waitFor(
+      () => {
+        const statusCalls = fetchMock.mock.calls.filter((call) =>
+          String(call[0]).includes('/api/podcast-status')
+        );
+        expect(statusCalls).toHaveLength(2);
+      },
+      { timeout: 3000 }
+    );
+    expect(shownTitles()).toHaveLength(25);
   });
 });

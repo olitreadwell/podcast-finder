@@ -20,9 +20,11 @@ const appCsp = [
   // docs is the upgrade path if pages move to dynamic rendering.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  // Apple serves podcast artwork from is1-ssl to is5-ssl.mzstatic.com, so
-  // the cards need that host allowed or the cover art is blocked.
-  "img-src 'self' data: blob: https://*.mzstatic.com",
+  // The table shows cover art from every directory it searches. Apple serves
+  // its own from is1-ssl to is5-ssl.mzstatic.com, but fyyd passes through
+  // whatever host the publisher uses, so no allowlist can name them all. Images
+  // are the only thing this loosens: every other fetch stays on 'self'.
+  "img-src 'self' data: blob: https:",
   "font-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",

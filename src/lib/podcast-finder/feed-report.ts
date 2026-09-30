@@ -46,6 +46,8 @@ export interface PodcastFeedReport {
   description: string | null;
   /** Title of the newest episode, or null. */
   latestEpisodeTitle: string | null;
+  /** Language the feed declares, or null when it does not say. */
+  language: string | null;
   /** Verdict on whether the show is still publishing, or null when unread. */
   health: ShowHealth | null;
   /** The schedule the show claims in its own words, or null. */
@@ -88,6 +90,7 @@ export function buildPodcastFeedReport(
       feedTitle: null,
       description: null,
       latestEpisodeTitle: null,
+      language: null,
       health: null,
       claim: null,
       claimMismatch: null,
@@ -108,6 +111,7 @@ export function buildPodcastFeedReport(
     description: feed.description,
     latestEpisodeTitle:
       feed.episodes.find((episode) => episode.publishedAt !== null)?.title ?? null,
+    language: feed.language,
     health: classifyShowHealth(summary),
     claim,
     claimMismatch: describeCadenceMismatch(claim, summary.medianGapDays),
