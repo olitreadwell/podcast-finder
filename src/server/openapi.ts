@@ -5,6 +5,8 @@ import { helloQuerySchema } from '@/server/hello-schema';
 import { contactFormSchema } from '@/server/contact-schema';
 import { feedbackFormSchema } from '@/server/feedback-schema';
 import {
+  podcastPublisherQuerySchema,
+  podcastPublisherResponseSchema,
   podcastSearchQuerySchema,
   podcastSearchResponseSchema,
   podcastStatusBodySchema,
@@ -110,6 +112,25 @@ export const openApiDocument: Simplify<ReturnType<typeof createDocument>> = crea
             ...jsonContent(podcastSearchResponseSchema),
           },
           '400': { description: 'Missing or invalid term', ...jsonContent(errorResponseSchema) },
+          '502': { description: 'Apple refused or failed', ...jsonContent(errorResponseSchema) },
+        },
+      },
+    },
+    '/api/publisher-shows': {
+      get: {
+        summary: 'List every show from one publisher',
+        description:
+          'Proxies the keyless iTunes lookup endpoint, which answers with every show filed under one publisher\u2019s Apple artist id. The id is the query key rather than the publisher name, because one id can be spelled several ways across its own shows and two publishers can share a name. The response includes one row for the artist itself, which carries no track id and is dropped.',
+        requestParams: { query: podcastPublisherQuerySchema },
+        responses: {
+          '200': {
+            description: 'Shows filed under that publisher',
+            ...jsonContent(podcastPublisherResponseSchema),
+          },
+          '400': {
+            description: 'Missing or invalid artistId',
+            ...jsonContent(errorResponseSchema),
+          },
           '502': { description: 'Apple refused or failed', ...jsonContent(errorResponseSchema) },
         },
       },

@@ -28,8 +28,12 @@ APIs:
 
 - `GET https://itunes.apple.com/search?term=&media=podcast&entity=podcast` —
   keyless, rate limited per IP, no useful CORS headers. Returns show metadata:
-  title, publisher, `feedUrl`, genres, artwork, storefront, `trackCount`, and a
-  `releaseDate` that loosely tracks the newest episode.
+  title, publisher, `artistId`, `feedUrl`, genres, artwork, storefront,
+  `trackCount`, and a `releaseDate` that loosely tracks the newest episode.
+- `GET https://itunes.apple.com/lookup?id=&entity=podcast` — the same
+  directory, keyed by the publisher's `artistId` rather than by words. Answers
+  every show filed under one publisher, ahead of which Apple puts one row for
+  the artist itself. That row carries no `trackId` and the parser drops it.
 - Each show's own RSS or Atom feed, fetched server-side for episode `pubDate`s
   and `<itunes:duration>` values.
 
@@ -51,12 +55,15 @@ src/lib/podcast-finder/feed-analysis.ts          feed fetch, RSS/Atom extraction
 src/lib/podcast-finder/feed-report.ts            one JSON-safe report per feed, batched
 src/lib/podcast-finder/itunes-search.ts          Apple search URL, response parsing, wire shapes
 src/lib/podcast-finder/show-tags.ts              tags, facts, sorting
-src/lib/podcast-finder/api-client.ts             the browser's two calls
+src/lib/podcast-finder/publisher-shows.ts        grouping shows by publisher
+src/lib/podcast-finder/api-client.ts             the browser's calls
 src/lib/podcast-finder/analysis-cache.ts         ten-minute TTL cache for feed reports
-src/app/podcast-finder/api/search/route.ts       search adapter
-src/app/podcast-finder/api/status/route.ts       feed status adapter (batched, cached, capped)
-src/app/podcast-finder/page.tsx                  the page (client component)
-docs/specs/podcast-finder.md                     this spec
+src/server/podcast-schemas.ts                    request and response schemas for all three routes
+src/app/api/podcast-search/route.ts              search adapter
+src/app/api/podcast-status/route.ts              feed status adapter (batched, cached, capped)
+src/app/api/publisher-shows/route.ts             publisher catalogue adapter
+src/app/page.tsx                                 the page (client component)
+docs/podcast-finder.md                           this spec
 ```
 
 Two routes rather than one, so the list appears as soon as Apple answers and the
@@ -96,6 +103,25 @@ The direction is kept as data rather than only wording, because the badge beside
 the sentence has to say "Schedule promise broken" for a show that slowed down
 and something else for one that always published more often than it claimed.
 
+## Following a publisher
+
+A card's publisher name is a button. The first click filters the results already
+on screen, which costs nothing, and says how many of them matched. The bar that
+appears offers a second, explicit step: list everything that publisher has ever
+filed with Apple, which is one more call to the lookup endpoint.
+
+Grouping is by Apple's `artistId`, never by the publisher's name. One artist id
+spells itself several ways across its own shows ("NPR" beside "NPR News"), and
+two unrelated publishers can share a name, so matching on the string would split
+one publisher and merge two. When Apple sends no `artistId` the name is the
+fallback key.
+
+The catalogue view runs the same feed analysis as a search, so a publisher's
+dead shows are labelled the same way. Two limits are stated rather than hidden:
+a small publisher has few shows, and some networks are filed under more than one
+artist id, so the page reports the count it found instead of claiming to be
+complete.
+
 ## Code style
 
 ```ts
@@ -125,8 +151,8 @@ definitions they explain.
   promise, the default filter hiding dormant and dead shows while saying how
   many, unticking it bringing them back, a failed search, a failed feed check
   falling back to Apple's numbers, and a show with no feed URL saying so.
-- Live: `node scripts/smoke-live.mjs /podcast-finder "Podcast Finder"` against
-  production after the deploy.
+- Live: `node scripts/smoke-live.mjs / "Podcast Finder"` against production
+  after the deploy.
 
 Coverage: `src/lib/podcast-finder/**/*.ts` is in the vitest coverage include
 list, under the repo's 70% threshold.
@@ -145,8 +171,8 @@ list, under the repo's 70% threshold.
 
 ## Success criteria
 
-- `https://scratchpad-ashen.vercel.app/podcast-finder` returns 200 and contains
-  the text `Podcast Finder`.
+- `https://podcast-finder-ruby.vercel.app` returns 200 and contains the text
+  `Podcast Finder`.
 - A search for a topic lists shows with a verdict, a last-episode age, a median
   gap, and a median episode length within a few seconds.
 - A show that stopped publishing is tagged Dormant or Dead and hidden by
@@ -155,6 +181,8 @@ list, under the repo's 70% threshold.
   mismatch sentence.
 - One unreachable feed host does not stop the other results from getting
   verdicts.
+- A publisher name on a card can be clicked to narrow the list, and the full
+  catalogue behind it can be listed without leaving the page.
 - `pnpm run check` is green with the new files included.
 - No new npm dependency.
 

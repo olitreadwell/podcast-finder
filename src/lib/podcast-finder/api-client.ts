@@ -20,6 +20,9 @@ export const PODCAST_SEARCH_ROUTE = '/api/podcast-search';
 /** Where the page asks for feed verdicts. */
 export const PODCAST_STATUS_ROUTE = '/api/podcast-status';
 
+/** Where the page asks for one publisher's catalogue. */
+export const PODCAST_PUBLISHER_ROUTE = '/api/publisher-shows';
+
 /** A search that worked, or a sentence saying why it did not. */
 export type PodcastSearchOutcome =
   { ok: true; shows: PodcastShow[] } | { ok: false; reason: string };
@@ -37,6 +40,14 @@ export function buildPodcastSearchRouteUrl(options: PodcastSearchOptions): strin
     params.set('genreId', String(options.genreId));
   params.set('limit', String(options.limit ?? DEFAULT_PODCAST_SEARCH_LIMIT));
   return `${PODCAST_SEARCH_ROUTE}?${params.toString()}`;
+}
+
+/** Build the publisher lookup URL the page fetches, with a stable parameter order. */
+export function buildPodcastPublisherRouteUrl(artistId: number, country: string): string {
+  const params = new URLSearchParams();
+  params.set('artistId', String(artistId));
+  params.set('country', country);
+  return `${PODCAST_PUBLISHER_ROUTE}?${params.toString()}`;
 }
 
 /** Read a JSON error body, falling back to a generic sentence. */
@@ -78,6 +89,36 @@ export async function searchPodcastShows(
     return { ok: true, shows: body.shows.map(podcastShowFromWire) };
   } catch {
     return { ok: false, reason: 'Could not reach the search route.' };
+  }
+}
+
+/**
+ * List every show Apple files under one publisher, through the app's own route.
+ *
+ * The artist id comes from Apple and is never typed by a visitor, so the only
+ * failure worth a sentence is Apple not answering.
+ */
+export async function fetchPublisherShows(
+  artistId: number,
+  country: string,
+  fetchImpl: typeof fetch = fetch
+): Promise<PodcastSearchOutcome> {
+  try {
+    const response = await fetchImpl(buildPodcastPublisherRouteUrl(artistId, country));
+    if (!response.ok) {
+      return {
+        ok: false,
+        reason: await readRouteError(response, `Publisher lookup failed (${response.status}).`),
+      };
+    }
+
+    const body = (await response.json()) as { shows?: SerialisedPodcastShow[] };
+    if (!Array.isArray(body.shows))
+      return { ok: false, reason: 'Publisher lookup returned an unexpected shape.' };
+
+    return { ok: true, shows: body.shows.map(podcastShowFromWire) };
+  } catch {
+    return { ok: false, reason: 'Could not reach the publisher route.' };
   }
 }
 

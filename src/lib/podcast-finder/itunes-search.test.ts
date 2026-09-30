@@ -4,7 +4,9 @@ import {
   DEFAULT_PODCAST_SEARCH_LIMIT,
   ITUNES_MAX_LIMIT,
   buildItunesPodcastSearchUrl,
+  buildItunesPublisherLookupUrl,
   clampPodcastSearchLimit,
+  lookupItunesPublisherShows,
   parseItunesPodcastSearch,
   searchItunesPodcasts,
   type PodcastShow,
@@ -18,6 +20,7 @@ function appleRow(overrides: Record<string, unknown> = {}) {
     trackId: 1234567890,
     trackName: 'Weekly Wipe',
     artistName: 'Drain Media',
+    artistId: 987654321,
     feedUrl: 'https://example.com/feed.xml',
     genres: ['Society & Culture', 'Podcasts'],
     country: 'USA',
@@ -36,6 +39,7 @@ function show(overrides: Partial<PodcastShow> = {}): PodcastShow {
     appleId: 1,
     title: 'Weekly Wipe',
     publisher: 'Drain Media',
+    artistId: null,
     feedUrl: 'https://example.com/feed.xml',
     genres: ['Society & Culture'],
     country: 'US',
@@ -89,6 +93,7 @@ describe('parseItunesPodcastSearch', () => {
       appleId: 1234567890,
       title: 'Weekly Wipe',
       publisher: 'Drain Media',
+      artistId: 987654321,
       feedUrl: 'https://example.com/feed.xml',
       genres: ['Society & Culture', 'Podcasts'],
       country: 'USA',
@@ -185,5 +190,53 @@ describe('searchItunesPodcasts', () => {
 describe('show fixture', () => {
   it('defaults to an active-looking show', () => {
     expect(show().title).toBe('Weekly Wipe');
+  });
+});
+
+describe('publisher lookup', () => {
+  it('asks Apple for one artist id and only its podcasts', () => {
+    const url = new URL(buildItunesPublisherLookupUrl(125443881, 'nz'));
+    expect(url.origin + url.pathname).toBe('https://itunes.apple.com/lookup');
+    expect(url.searchParams.get('id')).toBe('125443881');
+    expect(url.searchParams.get('entity')).toBe('podcast');
+    expect(url.searchParams.get('country')).toBe('nz');
+  });
+
+  it('drops the artist row Apple returns ahead of the shows', async () => {
+    const fetchImpl = vi.fn(async () => ({
+      ok: true,
+      json: async () => ({
+        resultCount: 3,
+        results: [
+          { wrapperType: 'artist', artistId: 125443881, artistName: 'NPR' },
+          appleRow({ trackId: 1, trackName: 'Up First from NPR' }),
+          appleRow({ trackId: 2, trackName: 'Fresh Air' }),
+        ],
+      }),
+    })) as unknown as typeof fetch;
+
+    const result = await lookupItunesPublisherShows(125443881, {}, fetchImpl);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.shows.map((entry) => entry.title)).toEqual(['Up First from NPR', 'Fresh Air']);
+  });
+
+  it('answers a sentence when Apple refuses', async () => {
+    const fetchImpl = vi.fn(async () => ({ ok: false, status: 503 })) as unknown as typeof fetch;
+    await expect(lookupItunesPublisherShows(1, {}, fetchImpl)).resolves.toEqual({
+      ok: false,
+      reason: 'Apple answered 503.',
+    });
+  });
+
+  it('names a timeout rather than blaming the network', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    }) as unknown as typeof fetch;
+    await expect(lookupItunesPublisherShows(1, {}, fetchImpl)).resolves.toEqual({
+      ok: false,
+      reason: 'Apple took too long to answer.',
+    });
   });
 });

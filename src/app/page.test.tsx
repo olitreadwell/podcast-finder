@@ -10,6 +10,7 @@ function wireShow(overrides: Record<string, unknown> = {}) {
     appleId: 1,
     title: 'Live Drains',
     publisher: 'Drain Media',
+    artistId: 555,
     feedUrl: 'https://example.com/live.xml',
     genres: ['Society & Culture'],
     country: 'US',
@@ -82,7 +83,7 @@ function jsonResponse(body: unknown, status = 200) {
 
 const fetchMock = vi.fn();
 
-/** Route the page's two calls to canned answers. */
+/** Route the page's calls to canned answers. */
 function stubRoutes(options: {
   shows: unknown[];
   reports?: unknown[];
@@ -90,6 +91,9 @@ function stubRoutes(options: {
   searchError?: string;
   statusStatus?: number;
   statusError?: string;
+  publisherShows?: unknown[];
+  publisherStatus?: number;
+  publisherError?: string;
 }) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -98,6 +102,12 @@ function stubRoutes(options: {
         return jsonResponse({ error: options.searchError ?? 'nope' }, options.searchStatus);
       }
       return jsonResponse({ shows: options.shows });
+    }
+    if (url.includes('/api/publisher-shows')) {
+      if (options.publisherStatus !== undefined && options.publisherStatus >= 400) {
+        return jsonResponse({ error: options.publisherError ?? 'nope' }, options.publisherStatus);
+      }
+      return jsonResponse({ shows: options.publisherShows ?? [] });
     }
     if (url.includes('/api/podcast-status')) {
       if (options.statusStatus !== undefined && options.statusStatus >= 400) {
@@ -238,6 +248,75 @@ describe('PodcastFinderPage', () => {
     await searchFor('drains');
 
     expect(await screen.findByText('No shows matched that topic.')).toBeTruthy();
+  });
+
+  it('narrows the results to one publisher when its name is clicked', async () => {
+    stubRoutes({
+      shows: [
+        wireShow(),
+        wireShow({
+          appleId: 2,
+          title: 'Drain Weekly',
+          publisher: 'Pipe Media',
+          artistId: 777,
+          feedUrl: 'https://example.com/weekly.xml',
+        }),
+      ],
+      reports: [report(), report({ feedUrl: 'https://example.com/weekly.xml' })],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drains');
+    await screen.findByText('Live Drains');
+    expect(screen.getByText('Drain Weekly')).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Drain Media' }));
+
+    expect(screen.queryByText('Drain Weekly')).toBeNull();
+    expect(screen.getByText('1 of 2 loaded shows are from Drain Media.')).toBeTruthy();
+  });
+
+  it('loads the rest of a publisher catalogue on request', async () => {
+    stubRoutes({
+      shows: [wireShow()],
+      reports: [report()],
+      publisherShows: [
+        wireShow(),
+        wireShow({
+          appleId: 3,
+          title: 'Drain Quarterly',
+          feedUrl: 'https://example.com/quarterly.xml',
+        }),
+      ],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drains');
+    await screen.findByText('Live Drains');
+
+    await user.click(screen.getByRole('button', { name: 'Drain Media' }));
+    await user.click(screen.getByRole('button', { name: /see all shows from drain media/i }));
+
+    expect(await screen.findByText('Drain Quarterly', undefined, { timeout: 2000 })).toBeTruthy();
+    expect(screen.getByText('All 2 loaded shows are from Drain Media.')).toBeTruthy();
+  });
+
+  it('says when a publisher catalogue cannot be loaded', async () => {
+    stubRoutes({
+      shows: [wireShow()],
+      reports: [report()],
+      publisherStatus: 502,
+      publisherError: 'Apple answered 502.',
+    });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drains');
+    await screen.findByText('Live Drains');
+
+    await user.click(screen.getByRole('button', { name: 'Drain Media' }));
+    await user.click(screen.getByRole('button', { name: /see all shows from drain media/i }));
+
+    expect(await screen.findByText(/Could not list every show from Drain Media/)).toBeTruthy();
   });
 
   it('searches the chosen storefront and genre', async () => {

@@ -24,6 +24,7 @@ export const podcastShowSchema = z.object({
   appleId: z.number().int(),
   title: z.string(),
   publisher: z.string(),
+  artistId: z.number().int().nullable(),
   feedUrl: z.string().nullable(),
   genres: z.array(z.string()),
   country: z.string(),
@@ -36,6 +37,18 @@ export const podcastShowSchema = z.object({
 
 /** Body of a successful GET /api/podcast-search response. */
 export const podcastSearchResponseSchema = z.object({ shows: z.array(podcastShowSchema) });
+
+/** Query string the publisher lookup route accepts. */
+export const podcastPublisherQuerySchema = z.object({
+  artistId: z.coerce.number().int().positive(),
+  country: z
+    .string()
+    .regex(/^[a-z]{2}$/)
+    .optional(),
+});
+
+/** Body of a successful GET /api/publisher-shows response. */
+export const podcastPublisherResponseSchema = z.object({ shows: z.array(podcastShowSchema) });
 
 /** Body of a POST /api/podcast-status request. */
 export const podcastStatusBodySchema = z.object({

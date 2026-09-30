@@ -15,8 +15,15 @@ import { z } from 'zod';
  * from the server once per search rather than once per keystroke per visitor. */
 export const ITUNES_SEARCH_ENDPOINT = 'https://itunes.apple.com/search';
 
+/** Apple's lookup endpoint, which answers with every show filed under one
+ * artist id. Used to list a publisher's catalogue after a click. */
+export const ITUNES_LOOKUP_ENDPOINT = 'https://itunes.apple.com/lookup';
+
 /** Most results one search may ask for; Apple's own documented ceiling. */
 export const ITUNES_MAX_LIMIT = 200;
+
+/** Most shows one publisher lookup may return. Apple's own ceiling again. */
+export const ITUNES_MAX_PUBLISHER_SHOWS = 200;
 
 /** Results per search when the page does not say otherwise. */
 export const DEFAULT_PODCAST_SEARCH_LIMIT = 25;
@@ -98,6 +105,10 @@ export interface PodcastShow {
   title: string;
   /** Publisher or network name. */
   publisher: string;
+  /** Apple's artist id for the publisher. This is the grouping key, because one
+   * publisher can be spelled several ways across its own shows and unrelated
+   * shows can share a name. Null when Apple did not return one. */
+  artistId: number | null;
   /** RSS feed URL, or null when Apple did not return one. */
   feedUrl: string | null;
   /** Genre names as Apple lists them, most specific first. */
@@ -153,6 +164,7 @@ const itunesPodcastSchema = z.object({
   trackId: z.number(),
   trackName: z.string(),
   artistName: z.string().optional(),
+  artistId: z.number().optional(),
   feedUrl: z.string().optional(),
   genres: z.array(z.string()).optional(),
   country: z.string().optional(),
@@ -231,6 +243,7 @@ export function parseItunesPodcastSearch(
       appleId: raw.trackId,
       title: raw.trackName,
       publisher: raw.artistName ?? 'Unknown publisher',
+      artistId: raw.artistId ?? null,
       feedUrl: raw.feedUrl ?? null,
       genres: raw.genres ?? [],
       country: (raw.country ?? '').toUpperCase(),
@@ -252,6 +265,50 @@ export async function searchItunesPodcasts(
 ): Promise<{ ok: true; shows: PodcastShow[] } | { ok: false; reason: string }> {
   try {
     const response = await fetchImpl(buildItunesPodcastSearchUrl(options), {
+      cache: 'no-store',
+      signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS),
+      headers: { 'user-agent': ITUNES_USER_AGENT },
+    });
+    if (!response.ok) return { ok: false, reason: `Apple answered ${response.status}.` };
+    return parseItunesPodcastSearch(await response.json());
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === 'TimeoutError';
+    return {
+      ok: false,
+      reason: timedOut ? 'Apple took too long to answer.' : 'Could not reach Apple.',
+    };
+  }
+}
+
+/**
+ * Build the lookup URL that lists every show Apple files under one publisher.
+ *
+ * Apple files a publisher under a numeric artist id, and one id can carry more
+ * than one spelling of the same name, so the id is the query key and the name
+ * is only ever shown, never matched on.
+ */
+export function buildItunesPublisherLookupUrl(artistId: number, country?: string): string {
+  const url = new URL(ITUNES_LOOKUP_ENDPOINT);
+  url.searchParams.set('id', String(artistId));
+  url.searchParams.set('entity', 'podcast');
+  url.searchParams.set('limit', String(ITUNES_MAX_PUBLISHER_SHOWS));
+  url.searchParams.set('country', country ?? 'us');
+  return url.toString();
+}
+
+/**
+ * List every show Apple attributes to one publisher.
+ *
+ * The response is the same envelope the search endpoint uses, plus one row for
+ * the artist itself, which carries no `trackId` and is dropped by the parser.
+ */
+export async function lookupItunesPublisherShows(
+  artistId: number,
+  options: { country?: string } = {},
+  fetchImpl: typeof fetch = fetch
+): Promise<{ ok: true; shows: PodcastShow[] } | { ok: false; reason: string }> {
+  try {
+    const response = await fetchImpl(buildItunesPublisherLookupUrl(artistId, options.country), {
       cache: 'no-store',
       signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS),
       headers: { 'user-agent': ITUNES_USER_AGENT },

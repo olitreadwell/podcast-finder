@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import {
+  buildPodcastPublisherRouteUrl,
   buildPodcastSearchRouteUrl,
   clampPodcastResultLimit,
   describeStatusProgress,
   fetchPodcastStatus,
+  fetchPublisherShows,
   listResultFeedUrls,
   searchPodcastShows,
 } from './api-client';
@@ -16,6 +18,7 @@ function wireShow(overrides: Record<string, unknown> = {}) {
     appleId: 1,
     title: 'Weekly Wipe',
     publisher: 'Drain Media',
+    artistId: null,
     feedUrl: 'https://example.com/feed.xml',
     genres: ['Society & Culture'],
     country: 'US',
@@ -212,6 +215,7 @@ describe('listResultFeedUrls', () => {
       genres: [],
       country: 'US',
       artworkUrl: null,
+      artistId: null,
       appleUrl: 'https://podcasts.apple.com/podcast/id1',
       episodeCount: null,
       latestReleaseAt: null,
@@ -243,5 +247,59 @@ describe('listResultFeedUrls', () => {
 
   it('answers an empty list for no shows', () => {
     expect(listResultFeedUrls([])).toEqual([]);
+  });
+});
+
+describe('buildPodcastPublisherRouteUrl', () => {
+  it('carries the artist id and storefront', () => {
+    expect(buildPodcastPublisherRouteUrl(125443881, 'nz')).toBe(
+      '/api/publisher-shows?artistId=125443881&country=nz'
+    );
+  });
+});
+
+describe('fetchPublisherShows', () => {
+  it('answers domain-typed shows', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ shows: [wireShow({ artistId: 125443881 })] })
+    ) as unknown as typeof fetch;
+
+    const outcome = await fetchPublisherShows(125443881, 'us', fetchImpl);
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.shows[0]?.artistId).toBe(125443881);
+    expect(outcome.shows[0]?.latestReleaseAt).toBeInstanceOf(Date);
+  });
+
+  it('uses the route error wording', async () => {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ error: 'Apple answered 502.' }, 502)
+    ) as unknown as typeof fetch;
+
+    await expect(fetchPublisherShows(1, 'us', fetchImpl)).resolves.toEqual({
+      ok: false,
+      reason: 'Apple answered 502.',
+    });
+  });
+
+  it('refuses a response that is not a show list', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse({ shows: 'nope' })) as unknown as typeof fetch;
+
+    await expect(fetchPublisherShows(1, 'us', fetchImpl)).resolves.toEqual({
+      ok: false,
+      reason: 'Publisher lookup returned an unexpected shape.',
+    });
+  });
+
+  it('answers a sentence when the route cannot be reached', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('offline');
+    }) as unknown as typeof fetch;
+
+    await expect(fetchPublisherShows(1, 'us', fetchImpl)).resolves.toEqual({
+      ok: false,
+      reason: 'Could not reach the publisher route.',
+    });
   });
 });

@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   describeStatusProgress,
   fetchPodcastStatus,
+  fetchPublisherShows,
   listResultFeedUrls,
   searchPodcastShows,
 } from '@/lib/podcast-finder/api-client';
@@ -26,6 +27,12 @@ import {
   PODCAST_GENRE_OPTIONS,
   type PodcastShow,
 } from '@/lib/podcast-finder/itunes-search';
+import {
+  describePublisherSelection,
+  filterShowsByPublisher,
+  publisherKeyForShow,
+  readPublisherArtistId,
+} from '@/lib/podcast-finder/publisher-shows';
 import {
   PODCAST_SORT_OPTIONS,
   describePodcastShowFacts,
@@ -82,6 +89,23 @@ interface ReportState {
   reason: string | null;
 }
 
+/**
+ * A publisher the visitor narrowed to: either a filter over the results already
+ * on screen, or the full catalogue fetched from Apple's lookup endpoint.
+ */
+interface PublisherState {
+  /** Grouping key from `publisherKeyForShow`, which is the artist id when Apple sent one. */
+  key: string;
+  /** Publisher name to show above the results. */
+  name: string;
+  /** Full catalogue once loaded, or null while this is only a filter. */
+  catalogue: PodcastShow[] | null;
+  /** True while the catalogue request is in flight. */
+  loading: boolean;
+  /** Sentence explaining a failed catalogue request, or null. */
+  reason: string | null;
+}
+
 const INITIAL_SEARCH_STATE: SearchState = { key: '', stage: 'ready', shows: [], reason: null };
 const INITIAL_REPORT_STATE: ReportState = { key: '', byFeedUrl: {}, reason: null };
 
@@ -90,11 +114,14 @@ function PodcastShowCard({
   show,
   report,
   checking,
+  onSelectPublisher,
 }: {
   show: PodcastShow;
   report: PodcastFeedReport | null;
   /** True while the feed batch is still in flight. */
   checking: boolean;
+  /** Called with the card's show when the visitor clicks its publisher name. */
+  onSelectPublisher: (show: PodcastShow) => void;
 }) {
   const facts = describePodcastShowFacts(show, report);
   const tags =
@@ -134,7 +161,13 @@ function PodcastShowCard({
               {show.title}
             </a>
           </h2>
-          <p className="text-xs text-neutral-400">{show.publisher}</p>
+          <button
+            className="text-xs text-neutral-400 underline decoration-dotted underline-offset-2 transition-colors hover:text-neutral-200"
+            onClick={() => onSelectPublisher(show)}
+            type="button"
+          >
+            {show.publisher}
+          </button>
         </div>
 
         {tags.length > 0 && (
@@ -287,6 +320,7 @@ export default function PodcastFinderPage() {
   const [filters, setFilters] = useState<PodcastFilters>(DEFAULT_FILTERS);
   const [search, setSearch] = useState<SearchState>(INITIAL_SEARCH_STATE);
   const [reports, setReports] = useState<ReportState>(INITIAL_REPORT_STATE);
+  const [publisher, setPublisher] = useState<PublisherState | null>(null);
 
   const searchKey = `${debouncedTerm}|${filters.country}|${filters.genreId}`;
 
@@ -321,6 +355,17 @@ export default function PodcastFinderPage() {
     () => (searchIsCurrent ? search.shows : []),
     [searchIsCurrent, search.shows]
   );
+  // The publisher filter narrows what is on screen; a loaded catalogue replaces
+  // it, because Apple answers the whole catalogue in one call.
+  const publisherPool = publisher?.catalogue ?? currentShows;
+  const publisherMatches = useMemo(
+    () =>
+      publisher === null ? publisherPool : filterShowsByPublisher(publisherPool, publisher.key),
+    [publisher, publisherPool]
+  );
+  const publisherArtistId = publisher === null ? null : readPublisherArtistId(publisher.key);
+  const displayKey = publisher === null ? searchKey : `publisher:${publisher.key}`;
+
   const searchStage: SearchStage =
     debouncedTerm.length < 2 ? 'idle' : searchIsCurrent ? search.stage : 'searching';
   const searchReason = searchIsCurrent ? search.reason : null;
@@ -336,6 +381,9 @@ export default function PodcastFinderPage() {
       limit: SEARCH_RESULT_LIMIT,
     }).then((outcome) => {
       if (!active) return;
+      // A new result set answers a new question, so a publisher filter from the
+      // old one would only ever read "0 of 25 shows are from ...".
+      setPublisher(null);
       setSearch(
         outcome.ok
           ? { key: searchKey, stage: 'ready', shows: outcome.shows, reason: null }
@@ -348,7 +396,7 @@ export default function PodcastFinderPage() {
     };
   }, [searchKey, debouncedTerm, filters.country, filters.genreId]);
 
-  const feedUrls = useMemo(() => listResultFeedUrls(currentShows), [currentShows]);
+  const feedUrls = useMemo(() => listResultFeedUrls(publisherPool), [publisherPool]);
 
   // Ask for verdicts on the feeds of whatever just came back.
   useEffect(() => {
@@ -361,16 +409,16 @@ export default function PodcastFinderPage() {
       if (outcome.ok) {
         for (const report of outcome.reports) byFeedUrl[report.feedUrl] = report;
       }
-      setReports({ key: searchKey, byFeedUrl, reason: outcome.ok ? null : outcome.reason });
+      setReports({ key: displayKey, byFeedUrl, reason: outcome.ok ? null : outcome.reason });
     });
 
     return () => {
       active = false;
     };
-  }, [feedUrls, searchKey]);
+  }, [feedUrls, displayKey]);
 
-  const reportIndex = reports.key === searchKey ? reports.byFeedUrl : NO_REPORTS;
-  const statusReason = reports.key === searchKey ? reports.reason : null;
+  const reportIndex = reports.key === displayKey ? reports.byFeedUrl : NO_REPORTS;
+  const statusReason = reports.key === displayKey ? reports.reason : null;
 
   const healthByAppleId = useMemo(() => {
     const map = new Map<string, ShowHealth>();
@@ -382,7 +430,7 @@ export default function PodcastFinderPage() {
   }, [currentShows, reportIndex]);
 
   const visibleShows = useMemo(() => {
-    const withVerdicts = currentShows.map((show) => ({
+    const withVerdicts = publisherMatches.map((show) => ({
       show,
       report: show.feedUrl === null ? null : (reportIndex[show.feedUrl] ?? null),
     }));
@@ -396,10 +444,40 @@ export default function PodcastFinderPage() {
       healthByAppleId,
       filters.sortOrder
     );
-  }, [currentShows, reportIndex, filters.hideStale, filters.sortOrder, healthByAppleId]);
+  }, [publisherMatches, reportIndex, filters.hideStale, filters.sortOrder, healthByAppleId]);
 
-  const hiddenCount = currentShows.length - visibleShows.length;
+  const hiddenCount = publisherMatches.length - visibleShows.length;
   const answeredCount = Object.keys(reportIndex).length;
+  // Clicking a publisher name filters the results already on screen, which is
+  // instant and needs no request. The catalogue behind the "see all" button is
+  // a second, explicit step, because it is another call to Apple.
+  const selectPublisher = useCallback((show: PodcastShow) => {
+    const key = publisherKeyForShow(show);
+    setPublisher((previous) =>
+      previous?.key === key
+        ? null
+        : { key, name: show.publisher, catalogue: null, loading: false, reason: null }
+    );
+  }, []);
+
+  const loadPublisherCatalogue = useCallback(() => {
+    const artistId = publisher === null ? null : readPublisherArtistId(publisher.key);
+    if (publisher === null || artistId === null) return;
+    const requestedKey = publisher.key;
+
+    setPublisher((previous) =>
+      previous === null ? previous : { ...previous, loading: true, reason: null }
+    );
+    void fetchPublisherShows(artistId, filters.country).then((outcome) => {
+      setPublisher((previous) => {
+        if (previous === null || previous.key !== requestedKey) return previous;
+        return outcome.ok
+          ? { ...previous, loading: false, catalogue: outcome.shows, reason: null }
+          : { ...previous, loading: false, reason: outcome.reason };
+      });
+    });
+  }, [publisher, filters.country]);
+
   const reportFor = useCallback(
     (show: PodcastShow) => (show.feedUrl === null ? null : (reportIndex[show.feedUrl] ?? null)),
     [reportIndex]
@@ -542,6 +620,43 @@ export default function PodcastFinderPage() {
         {hiddenCount > 0 && ` ${hiddenCount} dormant or dead shows hidden.`}
       </p>
 
+      {publisher !== null && (
+        <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-neutral-800 bg-neutral-900/40 px-3 py-2 text-sm">
+          <span className="text-neutral-300">
+            {describePublisherSelection(
+              publisherMatches.length,
+              publisherPool.length,
+              publisher.name
+            )}
+          </span>
+          {publisherArtistId !== null && publisher.catalogue === null && (
+            <button
+              className="rounded-full border border-neutral-700 px-3 py-1 text-xs transition-colors hover:bg-neutral-800 disabled:opacity-60"
+              disabled={publisher.loading}
+              onClick={loadPublisherCatalogue}
+              type="button"
+            >
+              {publisher.loading
+                ? `Loading all shows from ${publisher.name}\u2026`
+                : `See all shows from ${publisher.name}`}
+            </button>
+          )}
+          <button
+            className="text-xs text-neutral-400 underline decoration-dotted underline-offset-2 hover:text-neutral-200"
+            onClick={() => setPublisher(null)}
+            type="button"
+          >
+            Clear publisher
+          </button>
+        </div>
+      )}
+
+      {publisher?.reason != null && (
+        <p className="mt-2 text-sm text-amber-300" role="alert">
+          Could not list every show from {publisher.name}: {publisher.reason}
+        </p>
+      )}
+
       {searchStage === 'failed' && (
         <p className="mt-4 text-sm text-rose-300" role="alert">
           {searchReason}
@@ -575,9 +690,11 @@ export default function PodcastFinderPage() {
 
       {searchStage === 'ready' && visibleShows.length === 0 && (
         <p className="mt-6 text-sm text-neutral-400">
-          {currentShows.length === 0
-            ? 'No shows matched that topic.'
-            : 'Every match was dormant or dead. Untick the box to see them.'}
+          {publisher !== null && publisherMatches.length === 0
+            ? 'None of the loaded shows are from that publisher. Clear it to see the rest.'
+            : currentShows.length === 0
+              ? 'No shows matched that topic.'
+              : 'Every match was dormant or dead. Untick the box to see them.'}
         </p>
       )}
 
@@ -586,6 +703,7 @@ export default function PodcastFinderPage() {
           <li key={show.appleId}>
             <PodcastShowCard
               checking={searchStage === 'searching' || answeredCount < feedUrls.length}
+              onSelectPublisher={selectPublisher}
               report={reportFor(show)}
               show={show}
             />

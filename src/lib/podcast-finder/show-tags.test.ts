@@ -48,6 +48,7 @@ function show(overrides: Partial<PodcastShow> = {}): PodcastShow {
     appleId: 1,
     title: 'Weekly Wipe',
     publisher: 'Drain Media',
+    artistId: null,
     feedUrl: 'https://example.com/feed.xml',
     genres: [],
     country: 'US',
