@@ -187,6 +187,11 @@ parsed query narrows the rows that come back, so the box says one thing and the
 table shows it. When the query removes rows the status line says how many of how
 many matched; when nothing is removed there is nothing to explain.
 
+Fields that name a fixed vocabulary rather than a topic (`verdict`,
+`language`, `country`) are matched locally and never sent as search words, so
+`science language:en` asks the directories about science and then keeps the rows
+that declare English, instead of asking for shows about `science en`.
+
 Nothing in the query fetches: every number it compares came from the feed
 reports the page asked for anyway. A bare term is matched across the title,
 publisher, genres, the feed's own description and its newest episode title,

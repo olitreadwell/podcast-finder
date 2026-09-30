@@ -435,6 +435,11 @@ export function matchesPodcastQuery(node: PodcastQueryNode, subject: PodcastQuer
  * matcher: `water AND NOT verdict:dead` searches `water` and filters the rest,
  * and a query of nothing but `gap>30` searches nothing at all.
  *
+ * Fields that name a fixed vocabulary rather than a topic (`verdict`,
+ * `language`, `country`) are kept out of the directory term as well, so
+ * `science language:en` searches for science and filters the language, instead
+ * of asking every directory for shows about `science en`.
+ *
  * Words inside a `NOT` are skipped, because asking Apple for a show and then
  * discarding it wastes the one request the app makes per search. Wildcards are
  * stripped rather than sent, and a word shorter than two characters is dropped
@@ -457,9 +462,15 @@ export function extractPodcastSearchTerm(node: PodcastQueryNode | null): string 
         return [];
       case 'text': {
         if (negated) return [];
-        // `verdict:` is a fixed vocabulary rather than a topic, so it filters
-        // locally and is never sent to a directory.
-        if (current.field === 'verdict') return [];
+        // These three name a fixed vocabulary rather than a topic, so they
+        // filter locally and are never sent to a directory.
+        if (
+          current.field === 'verdict' ||
+          current.field === 'language' ||
+          current.field === 'country'
+        ) {
+          return [];
+        }
         const words = current.value.replace(/[*?]/g, '').trim();
         return words.length >= MINIMUM_TERM_LENGTH ? [words] : [];
       }

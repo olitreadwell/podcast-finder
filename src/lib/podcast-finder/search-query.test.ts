@@ -331,7 +331,14 @@ describe('extractPodcastSearchTerm', () => {
   it('asks for nothing when the query is only fields or numbers', () => {
     expect(extractPodcastSearchTerm(node('gap>30'))).toBe('');
     expect(extractPodcastSearchTerm(node('verdict:active'))).toBe('');
+    expect(extractPodcastSearchTerm(node('language:en'))).toBe('');
+    expect(extractPodcastSearchTerm(node('country:nz'))).toBe('');
     expect(extractPodcastSearchTerm(null)).toBe('');
+  });
+
+  it('sends the topic and keeps a vocabulary field out of the directory term', () => {
+    expect(extractPodcastSearchTerm(node('science language:en'))).toBe('science');
+    expect(extractPodcastSearchTerm(node('science AND NOT country:nz'))).toBe('science');
   });
 
   it('strips wildcards and drops a word too short to search', () => {
