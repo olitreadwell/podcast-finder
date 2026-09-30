@@ -118,13 +118,13 @@ export function rankShowHealth(health: ShowHealth | null): number {
 }
 
 /**
- * Sort shows for the results list. Health and newest both fall back to Apple's
- * order for shows whose feeds have not answered yet, so the list never looks
- * shuffled while statuses are still arriving.
+ * Sort shows for the results list. Health and newest both fall back to the
+ * directory's order for shows whose feeds have not answered yet, so the list
+ * never looks shuffled while statuses are still arriving.
  */
 export function sortPodcastShows(
   shows: readonly PodcastShow[],
-  healthByAppleId: ReadonlyMap<string, ShowHealth>,
+  healthBySourceKey: ReadonlyMap<string, ShowHealth>,
   order: PodcastSortOrder
 ): PodcastShow[] {
   const sorted = [...shows];
@@ -133,8 +133,8 @@ export function sortPodcastShows(
   if (order === 'health') {
     return sorted.sort((left, right) => {
       const byHealth =
-        rankShowHealth(healthByAppleId.get(String(left.appleId)) ?? null) -
-        rankShowHealth(healthByAppleId.get(String(right.appleId)) ?? null);
+        rankShowHealth(healthBySourceKey.get(left.sourceKey) ?? null) -
+        rankShowHealth(healthBySourceKey.get(right.sourceKey) ?? null);
       if (byHealth !== 0) return byHealth;
       return (right.latestReleaseAt?.getTime() ?? 0) - (left.latestReleaseAt?.getTime() ?? 0);
     });
@@ -192,7 +192,13 @@ export function describePodcastShowFacts(
     },
   ];
   if (show.episodeCount !== null) {
-    facts.push({ label: 'Episodes', value: `${show.episodeCount} per Apple` });
+    // Only the two Apple surfaces can say "per Apple"; the other directories
+    // count for themselves, and the label should not credit the wrong one.
+    const countIsApples = show.source === 'apple' || show.source === 'charts';
+    facts.push({
+      label: 'Episodes',
+      value: countIsApples ? `${show.episodeCount} per Apple` : String(show.episodeCount),
+    });
   }
   return facts;
 }

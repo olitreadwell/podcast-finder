@@ -30,7 +30,7 @@ export const FEED_MAX_ITEMS = 300;
 
 /** How the app identifies itself when it pulls a feed, as podcast hosts ask. */
 export const PODCAST_FEED_USER_AGENT =
-  'ScratchpadPodcastFinder/1.0 (+https://scratchpad-ashen.vercel.app/podcast-finder)';
+  'PodcastFinder/1.0 (+https://podcast-finder-ruby.vercel.app)';
 
 /** One episode as the feed describes it. */
 export interface FeedEpisode {

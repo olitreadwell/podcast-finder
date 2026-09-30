@@ -34,6 +34,16 @@ APIs:
   directory, keyed by the publisher's `artistId` rather than by words. Answers
   every show filed under one publisher, ahead of which Apple puts one row for
   the artist itself. That row carries no `trackId` and the parser drops it.
+  It also takes a comma-separated id list, which is how a whole chart is turned
+  into shows in one request.
+- `GET https://rss.applemarketingtools.com/api/v2/{country}/podcasts/top/{n}/podcasts.json`
+  — Apple's chart per storefront. Keyless. Carries show ids but no feed URL, so
+  every chart is followed by one batched lookup.
+- `GET https://api.fyyd.de/0.2/search/podcast?term=&count=&page=0` — a second
+  directory, run independently of Apple, with an open API and no key. Its rows
+  carry the feed URL.
+- `GET https://archive.org/advancedsearch.php` — audio in the Archive's
+  podcasts collection. No feed, so nothing from here can be judged.
 - Each show's own RSS or Atom feed, fetched server-side for episode `pubDate`s
   and `<itunes:duration>` values.
 
@@ -57,6 +67,9 @@ src/lib/podcast-finder/itunes-search.ts          Apple search URL, response pars
 src/lib/podcast-finder/show-tags.ts              tags, facts, sorting
 src/lib/podcast-finder/publisher-shows.ts        grouping shows by publisher
 src/lib/podcast-finder/search-query.ts           the filter box's query language
+src/lib/podcast-finder/apple-charts.ts           Apple's chart feed plus the lookup that fills feeds in
+src/lib/podcast-finder/fyyd-search.ts            the second directory
+src/lib/podcast-finder/archive-search.ts         the Internet Archive, listed but not judged
 src/lib/podcast-finder/api-client.ts             the browser's calls
 src/lib/podcast-finder/analysis-cache.ts         ten-minute TTL cache for feed reports
 src/server/podcast-schemas.ts                    request and response schemas for all three routes
@@ -103,6 +116,30 @@ sentence is the app's reason to exist: `Says weekly, actually every ~400 days`.
 The direction is kept as data rather than only wording, because the badge beside
 the sentence has to say "Schedule promise broken" for a show that slowed down
 and something else for one that always published more often than it claimed.
+
+## Where the shows come from
+
+Four directories can answer, chosen with the Source select:
+
+| Source | What it answers | Can it get a verdict? |
+| --- | --- | --- |
+| Apple search | shows about a topic | yes, its rows carry a feed URL |
+| Apple charts | a storefront's ranked list | yes, after one batched lookup fills the feeds in |
+| fyyd | shows about a topic | yes, its rows carry a feed URL |
+| Internet Archive | audio items about a topic | no, the Archive has items rather than feeds |
+
+Every source is normalised to the same `PodcastShow`, which is what keeps one
+card, one sort and one verdict machinery serving all four. A row carries its
+`source` and a `sourceKey` unique inside that directory; the source key is what
+React keys on and what the verdict index is keyed by, so two directories can
+never collide in a list.
+
+The Archive is the honest exception. Its rows are real shows with real titles
+and publishers, and no feed, so they are listed with a sentence saying they
+cannot be checked rather than a verdict they have not earned. The Archive query
+is built by reducing the visitor's term to letters, numbers, spaces, apostrophes
+and hyphens, because the term is interpolated into a query language and a
+visitor should not be able to edit the query we send.
 
 ## Following a publisher
 
@@ -170,7 +207,9 @@ definitions they explain.
 
 ## Testing strategy
 
-- Unit (`src/lib/podcast-finder/*.test.ts`): query parsing and matching
+- Unit (`src/lib/podcast-finder/*.test.ts`): chart parsing and the lookup that
+  follows it, fyyd and Archive mapping (including a term that tries to edit the
+  Archive query), query parsing and matching
   (precedence, quotes, fields, wildcards, numeric comparisons, unanswered
   feeds), cadence maths and verdict
   thresholds, claim reading and mismatch wording, RSS and Atom extraction
@@ -217,6 +256,9 @@ list, under the repo's 70% threshold.
   catalogue behind it can be listed without leaving the page.
 - The filter box narrows the loaded shows, and a query it cannot parse is
   explained rather than silently returning nothing.
+- Switching the Source to charts lists a storefront's chart, to fyyd lists a
+  second directory's results, and to the Internet Archive lists items that say
+  plainly they cannot be checked.
 - `pnpm run check` is green with the new files included.
 - No new npm dependency.
 

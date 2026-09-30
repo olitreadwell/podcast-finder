@@ -18,7 +18,8 @@ import {
   fetchPodcastStatus,
   fetchPublisherShows,
   listResultFeedUrls,
-  searchPodcastShows,
+  searchPodcastDirectory,
+  type PodcastDirectorySource,
 } from '@/lib/podcast-finder/api-client';
 import type { ShowHealth } from '@/lib/podcast-finder/episode-cadence';
 import { MAX_FEEDS_PER_REQUEST, type PodcastFeedReport } from '@/lib/podcast-finder/feed-report';
@@ -56,6 +57,36 @@ const FILTERS_STORAGE_KEY = 'podcast-finder.filters';
 
 /** Shown when a visitor has not typed anything yet. */
 const EXAMPLE_SEARCHES = ['municipal water', 'type design', 'climate policy'];
+
+/**
+ * Directories the page can ask. Apple answers a topic search, its charts answer
+ * a storefront's ranked list, fyyd is a second directory, and the Archive has
+ * items rather than feeds and so can only ever be listed.
+ */
+const SOURCE_OPTIONS: ReadonlyArray<{ value: PodcastDirectorySource; label: string }> = [
+  { value: 'apple', label: 'Apple search' },
+  { value: 'charts', label: 'Apple charts' },
+  { value: 'fyyd', label: 'fyyd' },
+  { value: 'archive', label: 'Internet Archive' },
+];
+
+/** The label for one directory, for progress sentences. */
+function readSourceLabel(source: PodcastDirectorySource): string {
+  return SOURCE_OPTIONS.find((option) => option.value === source)?.label ?? 'the directory';
+}
+
+/** Sentence for a row whose directory returned no feed URL, so no verdict is possible. */
+function describeMissingFeed(source: PodcastDirectorySource): string {
+  switch (source) {
+    case 'apple':
+    case 'charts':
+      return 'Apple returned no feed URL for this one, so it cannot be checked.';
+    case 'fyyd':
+      return 'fyyd returned no feed URL for this one, so it cannot be checked.';
+    case 'archive':
+      return 'The Internet Archive serves these as items, not feeds, so this one cannot be checked.';
+  }
+}
 
 /**
  * Results per search. Deliberately the same number as the status route's feed
@@ -163,7 +194,7 @@ function PodcastShowCard({
           <h2 className="truncate text-lg font-semibold">
             <a
               className="hover:underline"
-              href={show.appleUrl}
+              href={show.pageUrl}
               rel="noreferrer noopener"
               target="_blank"
             >
@@ -212,9 +243,7 @@ function PodcastShowCard({
         )}
 
         {show.feedUrl === null && (
-          <p className="mt-2 text-xs text-neutral-400">
-            Apple returned no feed URL for this one, so it cannot be checked.
-          </p>
+          <p className="mt-2 text-xs text-neutral-400">{describeMissingFeed(show.source)}</p>
         )}
 
         {report !== null && !report.ok && (
@@ -284,6 +313,7 @@ function ReleaseTrend({ counts }: { counts: readonly number[] }) {
 
 /** The filters a visitor can set, in one object so restoring them is one write. */
 interface PodcastFilters {
+  source: PodcastDirectorySource;
   country: string;
   genreId: number;
   sortOrder: PodcastSortOrder;
@@ -291,6 +321,7 @@ interface PodcastFilters {
 }
 
 const DEFAULT_FILTERS: PodcastFilters = {
+  source: 'apple',
   country: 'us',
   genreId: 0,
   sortOrder: 'newest',
@@ -312,6 +343,7 @@ function readSavedFilters(): PodcastFilters | null {
     if (typeof parsed.country !== 'string') return null;
     if (typeof parsed.genreId !== 'number') return null;
     return {
+      source: parsed.source ?? DEFAULT_FILTERS.source,
       country: parsed.country,
       genreId: parsed.genreId,
       sortOrder: parsed.sortOrder ?? DEFAULT_FILTERS.sortOrder,
@@ -334,7 +366,9 @@ export default function PodcastFinderPage() {
   // question the visitor asked last time, and a stale one looks like a bug.
   const [query, setQuery] = useState('');
 
-  const searchKey = `${debouncedTerm}|${filters.country}|${filters.genreId}`;
+  // Charts ignore the topic, so they only have to wait for a storefront.
+  const searchNeedsTerm = filters.source !== 'charts';
+  const searchKey = `${filters.source}|${debouncedTerm}|${filters.country}|${filters.genreId}`;
 
   // Restore the filters a visitor last used. This runs after mount rather than
   // during the first render, because the server that prerenders this page has
@@ -379,14 +413,18 @@ export default function PodcastFinderPage() {
   const displayKey = publisher === null ? searchKey : `publisher:${publisher.key}`;
 
   const searchStage: SearchStage =
-    debouncedTerm.length < 2 ? 'idle' : searchIsCurrent ? search.stage : 'searching';
+    searchNeedsTerm && debouncedTerm.length < 2
+      ? 'idle'
+      : searchIsCurrent
+        ? search.stage
+        : 'searching';
   const searchReason = searchIsCurrent ? search.reason : null;
 
   useEffect(() => {
-    if (debouncedTerm.length < 2) return;
+    if (searchNeedsTerm && debouncedTerm.length < 2) return;
 
     let active = true;
-    void searchPodcastShows({
+    void searchPodcastDirectory(filters.source, {
       term: debouncedTerm,
       country: filters.country,
       genreId: filters.genreId > 0 ? filters.genreId : undefined,
@@ -406,7 +444,7 @@ export default function PodcastFinderPage() {
     return () => {
       active = false;
     };
-  }, [searchKey, debouncedTerm, filters.country, filters.genreId]);
+  }, [searchKey, debouncedTerm, filters.country, filters.genreId, filters.source, searchNeedsTerm]);
 
   const feedUrls = useMemo(() => listResultFeedUrls(publisherPool), [publisherPool]);
 
@@ -432,11 +470,11 @@ export default function PodcastFinderPage() {
   const reportIndex = reports.key === displayKey ? reports.byFeedUrl : NO_REPORTS;
   const statusReason = reports.key === displayKey ? reports.reason : null;
 
-  const healthByAppleId = useMemo(() => {
+  const healthBySourceKey = useMemo(() => {
     const map = new Map<string, ShowHealth>();
     for (const show of currentShows) {
       const report = show.feedUrl === null ? undefined : reportIndex[show.feedUrl];
-      if (report?.health != null) map.set(String(show.appleId), report.health);
+      if (report?.health != null) map.set(show.sourceKey, report.health);
     }
     return map;
   }, [currentShows, reportIndex]);
@@ -461,7 +499,7 @@ export default function PodcastFinderPage() {
     return {
       visibleShows: sortPodcastShows(
         kept.map((entry) => entry.show),
-        healthByAppleId,
+        healthBySourceKey,
         filters.sortOrder
       ),
       matchedCount: byQuery.length,
@@ -471,7 +509,7 @@ export default function PodcastFinderPage() {
     reportIndex,
     filters.hideStale,
     filters.sortOrder,
-    healthByAppleId,
+    healthBySourceKey,
     queryNode,
   ]);
 
@@ -530,7 +568,7 @@ export default function PodcastFinderPage() {
       <header className="mt-8">
         <h1 className="text-3xl font-semibold tracking-tight">Podcast Finder</h1>
         <p className="mt-2 max-w-prose text-sm text-neutral-400">
-          Find shows about a topic, then see whether they still publish. Search comes from
+          Find shows about a topic, then see whether they still publish. Search starts at
           Apple&rsquo;s keyless{' '}
           <a
             className="underline decoration-neutral-600 underline-offset-2 hover:text-neutral-200"
@@ -540,8 +578,9 @@ export default function PodcastFinderPage() {
           >
             iTunes Search API
           </a>
-          ; every verdict comes from the show&rsquo;s own feed, so a page promising monthly episodes
-          since 2019 is labelled for what it is.
+          , and can switch to Apple&rsquo;s charts, fyyd, or the Internet Archive. Every verdict
+          comes from the show&rsquo;s own feed, so a page promising monthly episodes since 2019 is
+          labelled for what it is.
         </p>
       </header>
 
@@ -555,13 +594,37 @@ export default function PodcastFinderPage() {
           </label>
           <input
             autoFocus
-            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-neutral-500 disabled:opacity-50"
+            disabled={filters.source === 'charts'}
             id="podcast-term"
             onChange={(event) => setTerm(event.target.value)}
-            placeholder="municipal water"
+            placeholder={filters.source === 'charts' ? 'charts need no topic' : 'municipal water'}
             type="search"
             value={term}
           />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label className="text-xs text-neutral-400" htmlFor="podcast-source">
+            Source
+          </label>
+          <select
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm outline-none focus:border-neutral-500"
+            id="podcast-source"
+            onChange={(event) =>
+              setFilters((previous) => ({
+                ...previous,
+                source: event.target.value as PodcastDirectorySource,
+              }))
+            }
+            value={filters.source}
+          >
+            {SOURCE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="flex flex-col gap-1">
@@ -670,7 +733,7 @@ export default function PodcastFinderPage() {
       </p>
 
       <p aria-live="polite" className="mt-4 text-xs text-neutral-400" role="status">
-        {searchStage === 'searching' && 'Searching Apple\u2026'}
+        {searchStage === 'searching' && `Searching ${readSourceLabel(filters.source)}\u2026`}
         {searchStage === 'ready' && describeStatusProgress(answeredCount, feedUrls.length)}
         {queryNode !== null &&
           ` ${results.matchedCount} of ${publisherMatches.length} match the filter.`}
@@ -759,7 +822,7 @@ export default function PodcastFinderPage() {
 
       <ul className="mt-6 flex flex-col gap-3">
         {visibleShows.map((show) => (
-          <li key={show.appleId}>
+          <li key={show.sourceKey}>
             <PodcastShowCard
               checking={searchStage === 'searching' || answeredCount < feedUrls.length}
               onSelectPublisher={selectPublisher}

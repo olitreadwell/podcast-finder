@@ -44,8 +44,11 @@ function tagInput(
 
 /** A show for the sort tests. */
 function show(overrides: Partial<PodcastShow> = {}): PodcastShow {
+  const appleId = typeof overrides.appleId === 'number' ? overrides.appleId : 1;
   return {
-    appleId: 1,
+    appleId,
+    source: 'apple',
+    sourceKey: `apple:${appleId}`,
     title: 'Weekly Wipe',
     publisher: 'Drain Media',
     artistId: null,
@@ -53,7 +56,7 @@ function show(overrides: Partial<PodcastShow> = {}): PodcastShow {
     genres: [],
     country: 'US',
     artworkUrl: null,
-    appleUrl: 'https://podcasts.apple.com/podcast/id1',
+    pageUrl: 'https://podcasts.apple.com/podcast/id1',
     episodeCount: 10,
     latestReleaseAt: new Date('2025-12-22T09:00:00.000Z'),
     explicit: false,
@@ -148,9 +151,9 @@ describe('sortPodcastShows', () => {
 
   it('puts shows in the best condition first', () => {
     const health = new Map([
-      ['1', 'dead' as const],
-      ['2', 'slowing' as const],
-      ['3', 'active' as const],
+      ['apple:1', 'dead' as const],
+      ['apple:2', 'slowing' as const],
+      ['apple:3', 'active' as const],
     ]);
 
     expect(

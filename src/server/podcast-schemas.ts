@@ -6,6 +6,7 @@
 import { z } from 'zod';
 
 import { MAX_FEEDS_PER_REQUEST } from '@/lib/podcast-finder/feed-report';
+import { APPLE_CHARTS_MAX_LIMIT } from '@/lib/podcast-finder/apple-charts';
 import { ITUNES_MAX_LIMIT } from '@/lib/podcast-finder/itunes-search';
 
 /** Query string the Apple search adapter accepts. */
@@ -21,7 +22,9 @@ export const podcastSearchQuerySchema = z.object({
 
 /** One show as the search route serialises it. */
 export const podcastShowSchema = z.object({
-  appleId: z.number().int(),
+  source: z.enum(['apple', 'charts', 'fyyd', 'archive']),
+  sourceKey: z.string(),
+  appleId: z.number().int().nullable(),
   title: z.string(),
   publisher: z.string(),
   artistId: z.number().int().nullable(),
@@ -29,7 +32,7 @@ export const podcastShowSchema = z.object({
   genres: z.array(z.string()),
   country: z.string(),
   artworkUrl: z.string().nullable(),
-  appleUrl: z.string(),
+  pageUrl: z.string(),
   episodeCount: z.number().int().nullable(),
   latestReleaseAt: z.string().nullable(),
   explicit: z.boolean(),
@@ -49,6 +52,26 @@ export const podcastPublisherQuerySchema = z.object({
 
 /** Body of a successful GET /api/publisher-shows response. */
 export const podcastPublisherResponseSchema = z.object({ shows: z.array(podcastShowSchema) });
+
+/** Query string the charts route accepts. A chart has no search term: it is a
+ * storefront's ranked list. */
+export const podcastChartsQuerySchema = z.object({
+  country: z
+    .string()
+    .regex(/^[a-z]{2}$/)
+    .default('us'),
+  limit: z.coerce.number().int().min(1).max(APPLE_CHARTS_MAX_LIMIT).optional(),
+});
+
+/** Query string the fyyd and Archive routes accept: both are term searches. */
+export const podcastDirectorySearchQuerySchema = z.object({
+  term: z.string().trim().min(2, 'Search needs at least two characters.').max(120),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+});
+
+/** Body of a successful directory search response. Charts, fyyd and the
+ * Archive all answer the same shape as an Apple search. */
+export const podcastDirectoryShowsResponseSchema = z.object({ shows: z.array(podcastShowSchema) });
 
 /** Body of a POST /api/podcast-status request. */
 export const podcastStatusBodySchema = z.object({

@@ -6,8 +6,11 @@ import PodcastFinderPage from './page';
 
 /** One show in the shape the search route returns it. */
 function wireShow(overrides: Record<string, unknown> = {}) {
+  const appleId = typeof overrides.appleId === 'number' ? overrides.appleId : 1;
   return {
-    appleId: 1,
+    source: 'apple',
+    sourceKey: `apple:${appleId}`,
+    appleId,
     title: 'Live Drains',
     publisher: 'Drain Media',
     artistId: 555,
@@ -15,7 +18,7 @@ function wireShow(overrides: Record<string, unknown> = {}) {
     genres: ['Society & Culture'],
     country: 'US',
     artworkUrl: null,
-    appleUrl: 'https://podcasts.apple.com/podcast/id1',
+    pageUrl: 'https://podcasts.apple.com/podcast/id1',
     episodeCount: 120,
     latestReleaseAt: '2025-12-22T09:00:00.000Z',
     explicit: false,
@@ -94,6 +97,9 @@ function stubRoutes(options: {
   publisherShows?: unknown[];
   publisherStatus?: number;
   publisherError?: string;
+  chartShows?: unknown[];
+  archiveShows?: unknown[];
+  fyydShows?: unknown[];
 }) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
     const url = String(input);
@@ -102,6 +108,15 @@ function stubRoutes(options: {
         return jsonResponse({ error: options.searchError ?? 'nope' }, options.searchStatus);
       }
       return jsonResponse({ shows: options.shows });
+    }
+    if (url.includes('/api/podcast-charts')) {
+      return jsonResponse({ shows: options.chartShows ?? [] });
+    }
+    if (url.includes('/api/podcast-fyyd')) {
+      return jsonResponse({ shows: options.fyydShows ?? [] });
+    }
+    if (url.includes('/api/podcast-archive')) {
+      return jsonResponse({ shows: options.archiveShows ?? [] });
     }
     if (url.includes('/api/publisher-shows')) {
       if (options.publisherStatus !== undefined && options.publisherStatus >= 400) {
@@ -377,6 +392,49 @@ describe('PodcastFinderPage', () => {
 
     expect(await screen.findByText('Dead Drains')).toBeTruthy();
     expect(screen.queryByText('Live Drains')).toBeNull();
+  });
+
+  it('asks Apple for a chart when that source is chosen, with no topic needed', async () => {
+    stubRoutes({
+      shows: [],
+      chartShows: [wireShow({ source: 'charts', sourceKey: 'charts:1' })],
+      reports: [report()],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText('Source'), 'charts');
+
+    expect(await screen.findByText('Live Drains')).toBeTruthy();
+    const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+    expect(urls.some((url) => url.includes('/api/podcast-charts'))).toBe(true);
+    expect(urls.some((url) => url.includes('/api/podcast-search'))).toBe(false);
+  });
+
+  it('says an Internet Archive item has no feed to check', async () => {
+    stubRoutes({
+      shows: [],
+      archiveShows: [
+        wireShow({
+          source: 'archive',
+          sourceKey: 'archive:osr141',
+          appleId: null,
+          feedUrl: null,
+          title: 'OSR141 Welcome',
+        }),
+      ],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = userEvent.setup();
+    await user.selectOptions(screen.getByLabelText('Source'), 'archive');
+    await user.type(screen.getByLabelText('Topic'), 'open science');
+
+    expect(
+      await screen.findByText(
+        'The Internet Archive serves these as items, not feeds, so this one cannot be checked.'
+      )
+    ).toBeTruthy();
   });
 
   it('searches the chosen storefront and genre', async () => {

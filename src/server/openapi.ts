@@ -5,6 +5,9 @@ import { helloQuerySchema } from '@/server/hello-schema';
 import { contactFormSchema } from '@/server/contact-schema';
 import { feedbackFormSchema } from '@/server/feedback-schema';
 import {
+  podcastChartsQuerySchema,
+  podcastDirectorySearchQuerySchema,
+  podcastDirectoryShowsResponseSchema,
   podcastPublisherQuerySchema,
   podcastPublisherResponseSchema,
   podcastSearchQuerySchema,
@@ -150,6 +153,57 @@ export const openApiDocument: Simplify<ReturnType<typeof createDocument>> = crea
           },
           '400': {
             description: 'Body was not JSON, or asked for too many feeds',
+            ...jsonContent(errorResponseSchema),
+          },
+        },
+      },
+    },
+    '/api/podcast-charts': {
+      get: {
+        summary: 'List a storefront\u2019s podcast chart',
+        description:
+          'Proxies Apple\u2019s keyless marketing feed, which is the ranked list of what one storefront is listening to right now. A chart row carries no feed URL, so the route follows it with one batched lookup that fills them in; without feeds the rows could be listed but never judged. Answers the same show shape as a search.',
+        requestParams: { query: podcastChartsQuerySchema },
+        responses: {
+          '200': {
+            description: 'Chart rows as shows',
+            ...jsonContent(podcastDirectoryShowsResponseSchema),
+          },
+          '400': { description: 'Invalid storefront', ...jsonContent(errorResponseSchema) },
+          '502': { description: 'Apple refused or failed', ...jsonContent(errorResponseSchema) },
+        },
+      },
+    },
+    '/api/podcast-fyyd': {
+      get: {
+        summary: 'Search fyyd',
+        description:
+          'The app\u2019s second directory, called from the server for the same reason Apple is. fyyd rows carry a feed URL, so its results get the same verdicts. Genres arrive as numeric ids and language is not a storefront, so both are left empty rather than guessed at.',
+        requestParams: { query: podcastDirectorySearchQuerySchema },
+        responses: {
+          '200': {
+            description: 'Shows matching the term',
+            ...jsonContent(podcastDirectoryShowsResponseSchema),
+          },
+          '400': { description: 'Missing or invalid term', ...jsonContent(errorResponseSchema) },
+          '502': { description: 'fyyd refused or failed', ...jsonContent(errorResponseSchema) },
+        },
+      },
+    },
+    '/api/podcast-archive': {
+      get: {
+        summary: 'Search the Internet Archive',
+        description:
+          'Searches audio items in the Archive\u2019s podcasts collection. These are items rather than feeds, so results from here can be listed but never judged by the cadence machinery, and the card says so instead of showing a verdict it does not have.',
+        requestParams: { query: podcastDirectorySearchQuerySchema },
+        responses: {
+          '200': {
+            description: 'Items matching the term',
+            ...jsonContent(podcastDirectoryShowsResponseSchema),
+          },
+          '400': { description: 'Missing or invalid term', ...jsonContent(errorResponseSchema) },
+          '502': {
+            description: 'The Archive refused or failed',
             ...jsonContent(errorResponseSchema),
           },
         },

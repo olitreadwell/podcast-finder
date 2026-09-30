@@ -40,11 +40,13 @@ function show(overrides: Partial<PodcastShow> = {}): PodcastShow {
     title: 'Weekly Wipe',
     publisher: 'Drain Media',
     artistId: null,
+    source: 'apple',
+    sourceKey: 'apple:1',
     feedUrl: 'https://example.com/feed.xml',
     genres: ['Society & Culture'],
     country: 'US',
     artworkUrl: null,
-    appleUrl: 'https://podcasts.apple.com/podcast/id1',
+    pageUrl: 'https://podcasts.apple.com/podcast/id1',
     episodeCount: 10,
     latestReleaseAt: new Date('2025-12-22T09:00:00.000Z'),
     explicit: false,
@@ -90,6 +92,8 @@ describe('parseItunesPodcastSearch', () => {
     if (!parsed.ok) throw new Error(parsed.reason);
 
     expect(parsed.shows[0]).toEqual({
+      source: 'apple',
+      sourceKey: 'apple:1234567890',
       appleId: 1234567890,
       title: 'Weekly Wipe',
       publisher: 'Drain Media',
@@ -98,7 +102,7 @@ describe('parseItunesPodcastSearch', () => {
       genres: ['Society & Culture', 'Podcasts'],
       country: 'USA',
       artworkUrl: 'https://example.com/art-600.jpg',
-      appleUrl: 'https://podcasts.apple.com/us/podcast/id1234567890',
+      pageUrl: 'https://podcasts.apple.com/us/podcast/id1234567890',
       episodeCount: 42,
       latestReleaseAt: new Date('2025-12-22T09:00:00.000Z'),
       explicit: false,
@@ -119,7 +123,7 @@ describe('parseItunesPodcastSearch', () => {
     if (!parsed.ok) throw new Error(parsed.reason);
 
     expect(parsed.shows[0]?.artworkUrl).toBe('https://example.com/art-100.jpg');
-    expect(parsed.shows[0]?.appleUrl).toBe('https://podcasts.apple.com/podcast/id1234567890');
+    expect(parsed.shows[0]?.pageUrl).toBe('https://podcasts.apple.com/podcast/id1234567890');
   });
 
   it('marks explicit shows and missing feed URLs', () => {
