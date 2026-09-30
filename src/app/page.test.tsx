@@ -319,6 +319,66 @@ describe('PodcastFinderPage', () => {
     expect(await screen.findByText(/Could not list every show from Drain Media/)).toBeTruthy();
   });
 
+  it('filters the loaded shows with the filter box', async () => {
+    stubRoutes({
+      shows: [
+        wireShow(),
+        wireShow({
+          appleId: 2,
+          title: 'Drain Weekly',
+          publisher: 'Pipe Media',
+          artistId: 777,
+          feedUrl: 'https://example.com/weekly.xml',
+        }),
+      ],
+      reports: [report(), report({ feedUrl: 'https://example.com/weekly.xml' })],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drains');
+    await screen.findByText('Live Drains');
+
+    await user.type(screen.getByLabelText('Filter'), 'publisher:pipe');
+
+    expect(screen.queryByText('Live Drains')).toBeNull();
+    expect(screen.getByText('Drain Weekly')).toBeTruthy();
+    expect(screen.getByText(/1 of 2 match the filter\./)).toBeTruthy();
+  });
+
+  it('explains a filter it cannot parse and keeps the results', async () => {
+    stubRoutes({ shows: [wireShow()], reports: [report()] });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drains');
+    await screen.findByText('Live Drains');
+
+    await user.type(screen.getByLabelText('Filter'), 'gap:soon');
+
+    expect(await screen.findByText('`gap:` wants a number, as in `gap>30`.')).toBeTruthy();
+    expect(screen.getByText('Live Drains')).toBeTruthy();
+  });
+
+  it('matches the numbers the feed measured', async () => {
+    stubRoutes({
+      shows: [
+        wireShow(),
+        wireShow({ appleId: 2, title: 'Dead Drains', feedUrl: 'https://example.com/dead.xml' }),
+      ],
+      reports: [report(), deadReport()],
+    });
+    render(<PodcastFinderPage />);
+
+    const user = await searchFor('drains');
+    await screen.findByText('Live Drains');
+    // The dead show is hidden by default, so let the filter be what removes it.
+    await user.click(screen.getByLabelText(/hide shows that stopped publishing/i));
+
+    await user.type(screen.getByLabelText('Filter'), 'last>100');
+
+    expect(await screen.findByText('Dead Drains')).toBeTruthy();
+    expect(screen.queryByText('Live Drains')).toBeNull();
+  });
+
   it('searches the chosen storefront and genre', async () => {
     stubRoutes({ shows: [wireShow()], reports: [report()] });
     render(<PodcastFinderPage />);

@@ -28,6 +28,12 @@ import {
   type PodcastShow,
 } from '@/lib/podcast-finder/itunes-search';
 import {
+  matchesPodcastQuery,
+  parsePodcastQuery,
+  QUERY_NUMBER_FIELDS,
+  QUERY_TEXT_FIELDS,
+} from '@/lib/podcast-finder/search-query';
+import {
   describePublisherSelection,
   filterShowsByPublisher,
   publisherKeyForShow,
@@ -105,6 +111,9 @@ interface PublisherState {
   /** Sentence explaining a failed catalogue request, or null. */
   reason: string | null;
 }
+
+/** Fields the filter box understands, shown as a hint under the form. */
+const QUERY_FIELD_HINT = [...QUERY_TEXT_FIELDS, ...QUERY_NUMBER_FIELDS].join(', ');
 
 const INITIAL_SEARCH_STATE: SearchState = { key: '', stage: 'ready', shows: [], reason: null };
 const INITIAL_REPORT_STATE: ReportState = { key: '', byFeedUrl: {}, reason: null };
@@ -321,6 +330,9 @@ export default function PodcastFinderPage() {
   const [search, setSearch] = useState<SearchState>(INITIAL_SEARCH_STATE);
   const [reports, setReports] = useState<ReportState>(INITIAL_REPORT_STATE);
   const [publisher, setPublisher] = useState<PublisherState | null>(null);
+  // The filter is not persisted with the other filters: a saved query answers a
+  // question the visitor asked last time, and a stale one looks like a bug.
+  const [query, setQuery] = useState('');
 
   const searchKey = `${debouncedTerm}|${filters.country}|${filters.genreId}`;
 
@@ -429,24 +441,42 @@ export default function PodcastFinderPage() {
     return map;
   }, [currentShows, reportIndex]);
 
-  const visibleShows = useMemo(() => {
+  const parsedQuery = useMemo(() => parsePodcastQuery(query), [query]);
+  const queryNode = parsedQuery.ok ? parsedQuery.node : null;
+
+  const results = useMemo(() => {
     const withVerdicts = publisherMatches.map((show) => ({
       show,
       report: show.feedUrl === null ? null : (reportIndex[show.feedUrl] ?? null),
     }));
+    const byQuery =
+      queryNode === null
+        ? withVerdicts
+        : withVerdicts.filter((entry) => matchesPodcastQuery(queryNode, entry));
     const kept = filters.hideStale
-      ? withVerdicts.filter(
+      ? byQuery.filter(
           (entry) => entry.report?.health !== 'dormant' && entry.report?.health !== 'dead'
         )
-      : withVerdicts;
-    return sortPodcastShows(
-      kept.map((entry) => entry.show),
-      healthByAppleId,
-      filters.sortOrder
-    );
-  }, [publisherMatches, reportIndex, filters.hideStale, filters.sortOrder, healthByAppleId]);
+      : byQuery;
+    return {
+      visibleShows: sortPodcastShows(
+        kept.map((entry) => entry.show),
+        healthByAppleId,
+        filters.sortOrder
+      ),
+      matchedCount: byQuery.length,
+    };
+  }, [
+    publisherMatches,
+    reportIndex,
+    filters.hideStale,
+    filters.sortOrder,
+    healthByAppleId,
+    queryNode,
+  ]);
 
-  const hiddenCount = publisherMatches.length - visibleShows.length;
+  const visibleShows = results.visibleShows;
+  const hiddenCount = results.matchedCount - visibleShows.length;
   const answeredCount = Object.keys(reportIndex).length;
   // Clicking a publisher name filters the results already on screen, which is
   // instant and needs no request. The catalogue behind the "see all" button is
@@ -598,6 +628,20 @@ export default function PodcastFinderPage() {
           </select>
         </div>
 
+        <div className="flex min-w-64 flex-1 flex-col gap-1">
+          <label className="text-xs text-neutral-400" htmlFor="podcast-query">
+            Filter
+          </label>
+          <input
+            className="rounded-lg border border-neutral-700 bg-neutral-900 px-3 py-2 font-mono text-sm outline-none focus:border-neutral-500"
+            id="podcast-query"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="title:water AND NOT verdict:dead"
+            type="text"
+            value={query}
+          />
+        </div>
+
         <label
           className="flex items-center gap-2 pb-2 text-sm text-neutral-300"
           htmlFor="podcast-hide-stale"
@@ -614,9 +658,22 @@ export default function PodcastFinderPage() {
         </label>
       </form>
 
+      {!parsedQuery.ok && (
+        <p className="mt-2 text-sm text-rose-300" role="alert">
+          {parsedQuery.reason}
+        </p>
+      )}
+
+      <p className="mt-2 text-xs text-neutral-400">
+        Filter uses AND, OR, NOT, brackets, quotes and wildcards. Fields: {QUERY_FIELD_HINT}.
+        Numbers compare with `gap&gt;30`, `last&lt;14` or `episodes:12`.
+      </p>
+
       <p aria-live="polite" className="mt-4 text-xs text-neutral-400" role="status">
         {searchStage === 'searching' && 'Searching Apple\u2026'}
         {searchStage === 'ready' && describeStatusProgress(answeredCount, feedUrls.length)}
+        {queryNode !== null &&
+          ` ${results.matchedCount} of ${publisherMatches.length} match the filter.`}
         {hiddenCount > 0 && ` ${hiddenCount} dormant or dead shows hidden.`}
       </p>
 
@@ -692,9 +749,11 @@ export default function PodcastFinderPage() {
         <p className="mt-6 text-sm text-neutral-400">
           {publisher !== null && publisherMatches.length === 0
             ? 'None of the loaded shows are from that publisher. Clear it to see the rest.'
-            : currentShows.length === 0
-              ? 'No shows matched that topic.'
-              : 'Every match was dormant or dead. Untick the box to see them.'}
+            : queryNode !== null && results.matchedCount === 0
+              ? 'No loaded shows match that filter.'
+              : currentShows.length === 0
+                ? 'No shows matched that topic.'
+                : 'Every match was dormant or dead. Untick the box to see them.'}
         </p>
       )}
 

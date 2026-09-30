@@ -56,6 +56,7 @@ src/lib/podcast-finder/feed-report.ts            one JSON-safe report per feed, 
 src/lib/podcast-finder/itunes-search.ts          Apple search URL, response parsing, wire shapes
 src/lib/podcast-finder/show-tags.ts              tags, facts, sorting
 src/lib/podcast-finder/publisher-shows.ts        grouping shows by publisher
+src/lib/podcast-finder/search-query.ts           the filter box's query language
 src/lib/podcast-finder/api-client.ts             the browser's calls
 src/lib/podcast-finder/analysis-cache.ts         ten-minute TTL cache for feed reports
 src/server/podcast-schemas.ts                    request and response schemas for all three routes
@@ -122,6 +123,35 @@ a small publisher has few shows, and some networks are filed under more than one
 artist id, so the page reports the count it found instead of claiming to be
 complete.
 
+## Filtering the results
+
+The filter box takes a small query language over the shows already on screen,
+and nothing in it fetches: every number it compares came from the feed reports
+the page asked for anyway.
+
+- `AND`, `OR` and `NOT`, with brackets. Two terms side by side mean `AND`, and
+  precedence runs `NOT`, then `AND`, then `OR`.
+- Quotes for a phrase, so `publisher:"Pipe Media"` is one value and a show
+  titled `and` can still be found.
+- Fields: `title`, `publisher`, `genre`, `country`, `verdict`. A term with no
+  field searches title, publisher and genres together.
+- Numbers: `gap`, `last` and `episodes`, compared with `>`, `<`, `>=`, `<=` or
+  `=`, written `gap>30` or `gap:>30`. The values come from the median gap, the
+  days since the newest episode, and the count of dated episodes.
+- `*` for any run of characters and `?` for one. Everything else is literal.
+
+Raw regular expressions are deliberately not accepted. A pasted pattern can
+backtrack forever on one line of a feed title, and there is nothing to gain:
+wildcards cover the shapes people actually type. The parser and the matcher are
+hand-written for the same reason the RSS reader is, which keeps the app at no
+new dependency and lets an error name the field that was misspelled instead of
+saying "syntax error".
+
+A numeric term needs an answered feed, so a show whose report has not arrived
+does not match `gap>30` rather than matching by accident. The filter is not
+saved with the other filters in `localStorage`: a query answers a question the
+visitor asked at the time, and a restored one looks like a bug.
+
 ## Code style
 
 ```ts
@@ -140,7 +170,9 @@ definitions they explain.
 
 ## Testing strategy
 
-- Unit (`src/lib/podcast-finder/*.test.ts`): cadence maths and verdict
+- Unit (`src/lib/podcast-finder/*.test.ts`): query parsing and matching
+  (precedence, quotes, fields, wildcards, numeric comparisons, unanswered
+  feeds), cadence maths and verdict
   thresholds, claim reading and mismatch wording, RSS and Atom extraction
   (CDATA, entities, broken dates, 300-item cap), duration parsing in three
   formats, Apple response parsing with malformed rows, tag and sort rules,
@@ -183,6 +215,8 @@ list, under the repo's 70% threshold.
   verdicts.
 - A publisher name on a card can be clicked to narrow the list, and the full
   catalogue behind it can be listed without leaving the page.
+- The filter box narrows the loaded shows, and a query it cannot parse is
+  explained rather than silently returning nothing.
 - `pnpm run check` is green with the new files included.
 - No new npm dependency.
 

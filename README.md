@@ -14,6 +14,9 @@ for what it is.
   the last 90 days, and a year of monthly release counts.
 - **Broken promises** — when a show says "weekly" and its own dates say every
   28 days, the card says so.
+- **A filter that explains itself** — `AND`, `OR`, `NOT`, brackets, quotes,
+  fields (`title:`, `verdict:`) and numbers (`gap>30`), with a sentence when a
+  query cannot be parsed.
 - **Honest failures** — a feed that cannot be read becomes a sentence on that
   one card, never a failed batch.
 
