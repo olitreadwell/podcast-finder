@@ -8,15 +8,19 @@
 
 import { z } from 'zod';
 
-import {
-  ITUNES_TIMEOUT_MS,
-  ITUNES_USER_AGENT,
-  lookupItunesShowsByIds,
-  type PodcastShow,
-} from './itunes-search';
+import { ITUNES_USER_AGENT, lookupItunesShowsByIds, type PodcastShow } from './itunes-search';
 
-/** Apple's marketing feed host, which serves the chart JSON per storefront. */
-export const APPLE_CHARTS_ENDPOINT = 'https://rss.applemarketingtools.com/api/v2';
+/**
+ * Apple's marketing feed host, which serves the chart JSON per storefront.
+ *
+ * The shorter `rss.applemarketingtools.com` name 301s here, so the canonical
+ * host is used directly and one round trip per chart is saved.
+ */
+export const APPLE_CHARTS_ENDPOINT = 'https://rss.marketingtools.apple.com/api/v2';
+
+/** Seconds a chart call waits. Measured at 1.5 s to 7.7 s for one storefront,
+ * so the shared eight-second Apple timeout reported working charts as failures. */
+export const APPLE_CHARTS_TIMEOUT_MS = 15_000;
 
 /** Rows per chart when the page does not say otherwise. */
 export const DEFAULT_APPLE_CHART_LIMIT = 25;
@@ -104,7 +108,7 @@ export async function fetchAppleChartShows(
   try {
     const response = await fetchImpl(buildAppleChartsUrl(country, limit), {
       cache: 'no-store',
-      signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS),
+      signal: AbortSignal.timeout(APPLE_CHARTS_TIMEOUT_MS),
       headers: { 'user-agent': ITUNES_USER_AGENT },
     });
     if (!response.ok) return { ok: false, reason: `Apple answered ${response.status}.` };

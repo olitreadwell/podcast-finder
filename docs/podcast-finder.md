@@ -36,9 +36,12 @@ APIs:
   the artist itself. That row carries no `trackId` and the parser drops it.
   It also takes a comma-separated id list, which is how a whole chart is turned
   into shows in one request.
-- `GET https://rss.applemarketingtools.com/api/v2/{country}/podcasts/top/{n}/podcasts.json`
+- `GET https://rss.marketingtools.apple.com/api/v2/{country}/podcasts/top/{n}/podcasts.json`
   — Apple's chart per storefront. Keyless. Carries show ids but no feed URL, so
-  every chart is followed by one batched lookup.
+  every chart is followed by one batched lookup. The shorter
+  `rss.applemarketingtools.com` name redirects here, and this host measured
+  between 1.5 s and 7.7 s for one chart, which is why this route waits longer
+  than the shared Apple timeout.
 - `GET https://api.fyyd.de/0.2/search/podcast?term=&count=&page=0` — a second
   directory, run independently of Apple, with an open API and no key. Its rows
   carry the feed URL.

@@ -12,6 +12,10 @@ import { podcastChartsQuerySchema } from '@/server/podcast-schemas';
 // Reads the query string and calls Apple live, so nothing here may be cached.
 export const dynamic = 'force-dynamic';
 
+// A chart, then one lookup for its feeds. Apple's chart host measured between
+// 1.5 s and 7.7 s on its own, so this route needs more room than the default.
+export const maxDuration = 30;
+
 export async function GET(request: Request): Promise<Response> {
   const params = Object.fromEntries(new URL(request.url).searchParams);
   const parsed = podcastChartsQuerySchema.safeParse(params);

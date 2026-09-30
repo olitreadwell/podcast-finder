@@ -50,7 +50,7 @@ function stubApple(options: {
 }) {
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.includes('rss.applemarketingtools.com')) {
+    if (url.includes('rss.marketingtools.apple.com')) {
       if (options.chartStatus !== undefined && options.chartStatus >= 400) {
         return { ok: false, status: options.chartStatus };
       }
@@ -77,7 +77,7 @@ describe('clampAppleChartLimit', () => {
 describe('buildAppleChartsUrl', () => {
   it('points at one storefront chart', () => {
     expect(buildAppleChartsUrl('nz', 10)).toBe(
-      'https://rss.applemarketingtools.com/api/v2/nz/podcasts/top/10/podcasts.json'
+      'https://rss.marketingtools.apple.com/api/v2/nz/podcasts/top/10/podcasts.json'
     );
   });
 });
