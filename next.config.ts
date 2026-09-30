@@ -20,7 +20,9 @@ const appCsp = [
   // docs is the upgrade path if pages move to dynamic rendering.
   "script-src 'self' 'unsafe-inline'",
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
+  // Apple serves podcast artwork from is1-ssl to is5-ssl.mzstatic.com, so
+  // the cards need that host allowed or the cover art is blocked.
+  "img-src 'self' data: blob: https://*.mzstatic.com",
   "font-src 'self' data:",
   "connect-src 'self'",
   "object-src 'none'",

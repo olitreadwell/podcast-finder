@@ -10,6 +10,9 @@ test('security headers are set on app pages', async ({ request }) => {
   expect(headers['permissions-policy']).toContain('geolocation=()');
   expect(headers['content-security-policy']).toContain("default-src 'self'");
   expect(headers['content-security-policy']).toContain("object-src 'none'");
+  // Podcast cards use Apple artwork, so that host has to stay allowed or the
+  // cover art silently stops loading.
+  expect(headers['content-security-policy']).toContain('https://*.mzstatic.com');
 });
 
 test('docs page gets the looser CSP that allows unpkg', async ({ request }) => {
