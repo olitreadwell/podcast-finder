@@ -22,10 +22,11 @@ export const DEFAULT_FYYD_SEARCH_LIMIT = 25;
  *
  * The merged search waits for every directory it asked, so fyyd's slowest
  * answer is the whole table's wait. Measured here, fyyd answers a term in
- * 1.2-1.4 s most of the time and occasionally takes nine, so a four-second cap
- * trades that spike for a sentence in `unavailable` rather than a stalled page.
+ * anywhere between 1.5 s and 8.3 s depending on the term, so the cap is ten
+ * seconds: below that, half the terms lost the second directory to a sentence
+ * in `unavailable`, which is worse than a table that takes a few seconds.
  */
-export const FYYD_TIMEOUT_MS = 4_000;
+export const FYYD_TIMEOUT_MS = 10_000;
 
 /** How the app identifies itself to fyyd. */
 export const FYYD_USER_AGENT = 'PodcastFinder/1.0 (+https://podcast-finder-ruby.vercel.app)';

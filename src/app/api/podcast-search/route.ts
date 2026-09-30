@@ -15,6 +15,10 @@ import { podcastSearchQuerySchema } from '@/server/podcast-schemas';
 // Reads the query string, so it must never be prerendered or cached per build.
 export const dynamic = 'force-dynamic';
 
+// The merged search waits for every directory, and fyyd can take ten seconds,
+// so the route asks for the same headroom the status route does.
+export const maxDuration = 60;
+
 export async function GET(request: Request): Promise<Response> {
   const params = Object.fromEntries(new URL(request.url).searchParams);
   const parsed = podcastSearchQuerySchema.safeParse(params);

@@ -13,10 +13,10 @@ for years after the last episode shipped. The listener only finds out after
 subscribing and waiting.
 
 The audience is one person with a topic in mind and no patience for dead feeds.
-Success is that a search answers in a couple of seconds, that every result
-carries a verdict measured from the show's own feed, and that a show which has
-stopped publishing is labelled and hidden by default rather than buried in a
-list of plausible-looking rows.
+Success is that a search answers in a few seconds (the slowest directory sets
+the wait), that every result carries a verdict measured from the show's own
+feed, and that a show which has stopped publishing is labelled and hidden by
+default rather than buried in a list of plausible-looking rows.
 
 ## Tech stack
 
@@ -38,9 +38,10 @@ APIs:
   the feeds in for a whole page of rows.
 - `GET https://api.fyyd.de/0.2/search/podcast?term=&count=&page=0` — a second
   directory, run independently of Apple, with an open API and no key. Its rows
-  carry the feed URL. It answers in 1.2-1.4 s most of the time and occasionally
-  takes nine, so it is cut off at four seconds: the merged search waits for
-  every directory, and a slow fyyd would otherwise be the whole table's wait.
+  carry the feed URL. It answers in anywhere between 1.5 s and 8.3 s depending
+  on the term (measured 2026-09-30), so it is cut off at ten seconds: the merged
+  search waits for every directory, and a cap below that cost the second
+  directory on half the searches.
 - `GET https://archive.org/advancedsearch.php` — audio in the Archive's
   podcasts collection. No feed, so nothing from here can be judged.
 - Each show's own RSS or Atom feed, fetched server-side for episode `pubDate`s
@@ -52,7 +53,7 @@ APIs:
 pnpm dev                                        # http://localhost:3000
 pnpm test                                       # vitest, fast loop
 pnpm run check                                  # the repo gate
-node scripts/smoke-live.mjs / "Podcast Finder"
+pnpm run smoke                       # boots the built server and curls every route
 ```
 
 ## Project structure
@@ -295,8 +296,8 @@ definitions they explain.
   a merged search naming where the rows came from and which directory did not
   answer, a failed search, a failed feed check falling back to the directories'
   numbers, and a show with no feed URL saying so.
-- Live: `node scripts/smoke-live.mjs / "Podcast Finder"` against production
-  after the deploy.
+- Live: `pnpm run smoke` locally, plus a manual search against production after
+  the deploy.
 
 Coverage: `src/lib/podcast-finder/**/*.ts` is in the vitest coverage include
 list, under the repo's 70% threshold.
