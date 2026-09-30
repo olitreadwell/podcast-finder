@@ -13,7 +13,7 @@
     "build": "next build",
     "start": "next start",
     "setup": "node scripts/setup.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

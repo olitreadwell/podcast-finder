@@ -1,0 +1,12 @@
+{
+  // Next writes both `.next/types` and `.next/dev/types` into tsconfig.json so
+  // its own config does not churn between dev and build. The dev glob points at
+  // files a running `next dev` rewrites in place, and an interrupted dev server
+  // (playwright kills one after every e2e run) can leave one truncated, which
+  // then fails `tsc` for reasons that have nothing to do with the source. The
+  // check's typecheck reads build types only; `next build` still filters the dev
+  // glob out on its own.
+  "extends": "./tsconfig.json",
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+  "exclude": ["node_modules", "e2e"]
+}
