@@ -127,8 +127,8 @@ become rows:
 
 | Directory | What it answers | Where it lands |
 | --- | --- | --- |
-| Apple search | shows about a topic, with the richest metadata | thirty rows in the table, feeds and all |
-| fyyd | shows about a topic, independently of Apple | twenty rows in the table, feeds and all |
+| Apple search | shows about a topic, with the richest metadata | up to a hundred rows in the table, feeds and all |
+| fyyd | shows about a topic, independently of Apple | up to sixty rows in the table, feeds and all |
 | Internet Archive | audio items about a topic | extra reading below the table, never a row |
 
 There is no Source select: the page asks one question and every directory
@@ -321,7 +321,7 @@ list, under the repo's 70% threshold.
 
 ## Success criteria
 
-- `https://podcast-finder-ruby.vercel.app` returns 200 and contains the text
+- `https://olis-podcast-finder.vercel.app` returns 200 and contains the text
   `Podcast Finder`.
 - A search for a topic lists rows with a verdict, a last-episode age, a median
   gap, and a median episode length within a few seconds, drawn from every

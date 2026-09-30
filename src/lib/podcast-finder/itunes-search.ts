@@ -29,7 +29,7 @@ export const ITUNES_MAX_PUBLISHER_SHOWS = 200;
 export const DEFAULT_PODCAST_SEARCH_LIMIT = 25;
 
 /** How the app identifies itself to Apple. */
-export const ITUNES_USER_AGENT = 'PodcastFinder/1.0 (+https://podcast-finder-ruby.vercel.app)';
+export const ITUNES_USER_AGENT = 'PodcastFinder/1.0 (+https://olis-podcast-finder.vercel.app)';
 
 /** Seconds the search route waits for Apple before giving up. */
 export const ITUNES_TIMEOUT_MS = 8_000;

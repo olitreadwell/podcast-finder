@@ -21,7 +21,7 @@ export const DEFAULT_ARCHIVE_SEARCH_LIMIT = 25;
 export const ARCHIVE_TIMEOUT_MS = 10_000;
 
 /** How the app identifies itself to the Archive. */
-export const ARCHIVE_USER_AGENT = 'PodcastFinder/1.0 (+https://podcast-finder-ruby.vercel.app)';
+export const ARCHIVE_USER_AGENT = 'PodcastFinder/1.0 (+https://olis-podcast-finder.vercel.app)';
 
 const archiveDocSchema = z.object({
   identifier: z.string(),

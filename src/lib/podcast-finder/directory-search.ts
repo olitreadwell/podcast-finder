@@ -19,14 +19,17 @@ import { searchItunesPodcasts, type PodcastSearchOptions, type PodcastShow } fro
  * Rows each directory contributes to the table.
  *
  * A topic search should look like a directory search, not a top ten, so each
- * one is asked for a real page of results. The status route still judges twenty
- * feeds per request, so the page walks the rows twenty at a time and the
- * verdicts land in waves rather than all at once.
+ * one is asked for as much as it will give: measured here, Apple stops at 100
+ * rows for any `limit` and fyyd answers 100 for `count=100`. Apple asks for its
+ * whole ceiling, and fyyd for sixty, which keeps one search near 160 feeds to
+ * judge. The status route still judges twenty feeds per request, so the page
+ * walks the rows twenty at a time and the verdicts land in waves rather than
+ * all at once.
  */
-export const APPLE_ROWS_PER_SEARCH = 30;
+export const APPLE_ROWS_PER_SEARCH = 100;
 
 /** fyyd's share of the feed budget. */
-export const FYYD_ROWS_PER_SEARCH = 20;
+export const FYYD_ROWS_PER_SEARCH = 60;
 
 /** Archive items, offered beside the table as extra reading rather than in it. */
 export const ARCHIVE_ROWS_PER_SEARCH = 6;

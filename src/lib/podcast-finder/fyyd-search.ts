@@ -29,7 +29,7 @@ export const DEFAULT_FYYD_SEARCH_LIMIT = 25;
 export const FYYD_TIMEOUT_MS = 10_000;
 
 /** How the app identifies itself to fyyd. */
-export const FYYD_USER_AGENT = 'PodcastFinder/1.0 (+https://podcast-finder-ruby.vercel.app)';
+export const FYYD_USER_AGENT = 'PodcastFinder/1.0 (+https://olis-podcast-finder.vercel.app)';
 
 import type { PodcastShow } from './itunes-search';
 

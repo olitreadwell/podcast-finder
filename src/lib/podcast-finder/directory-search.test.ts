@@ -207,10 +207,10 @@ describe('searchEveryDirectory', () => {
     const urls = (
       fetchImpl as unknown as { mock: { calls: [RequestInfo | URL][] } }
     ).mock.calls.map((call) => String(call[0]));
-    expect(urls.some((url) => url.includes('itunes.apple.com') && url.includes('limit=30'))).toBe(
+    expect(urls.some((url) => url.includes('itunes.apple.com') && url.includes('limit=100'))).toBe(
       true
     );
-    expect(urls.some((url) => url.includes('api.fyyd.de') && url.includes('count=20'))).toBe(true);
+    expect(urls.some((url) => url.includes('api.fyyd.de') && url.includes('count=60'))).toBe(true);
     expect(urls.some((url) => url.includes('archive.org') && url.includes('rows=6'))).toBe(true);
   });
 });
