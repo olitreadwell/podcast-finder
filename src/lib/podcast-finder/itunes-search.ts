@@ -297,7 +297,7 @@ export async function searchItunesPodcasts(
  */
 export async function lookupItunesShowsByIds(
   appleIds: readonly number[],
-  options: { country?: string } = {},
+  options: { country?: string; timeoutMs?: number } = {},
   fetchImpl: typeof fetch = fetch
 ): Promise<{ ok: true; shows: PodcastShow[] } | { ok: false; reason: string }> {
   if (appleIds.length === 0) return { ok: true, shows: [] };
@@ -310,7 +310,7 @@ export async function lookupItunesShowsByIds(
   try {
     const response = await fetchImpl(url.toString(), {
       cache: 'no-store',
-      signal: AbortSignal.timeout(ITUNES_TIMEOUT_MS),
+      signal: AbortSignal.timeout(options.timeoutMs ?? ITUNES_TIMEOUT_MS),
       headers: { 'user-agent': ITUNES_USER_AGENT },
     });
     if (!response.ok) return { ok: false, reason: `Apple answered ${response.status}.` };

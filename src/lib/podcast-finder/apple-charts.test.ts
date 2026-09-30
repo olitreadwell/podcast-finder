@@ -60,8 +60,10 @@ function stubApple(options: {
   chartFailures?: number;
   lookup?: unknown;
   lookupStatus?: number;
+  lookupFailures?: number;
 }) {
   let chartFailuresLeft = options.chartFailures ?? 0;
+  let lookupFailuresLeft = options.lookupFailures ?? 0;
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes('rss.marketingtools.apple.com')) {
@@ -75,6 +77,10 @@ function stubApple(options: {
       return { ok: true, status: 200, json: async () => options.chart };
     }
     if (url.includes('/lookup')) {
+      if (lookupFailuresLeft > 0) {
+        lookupFailuresLeft -= 1;
+        return { ok: false, status: 503 };
+      }
       if (options.lookupStatus !== undefined && options.lookupStatus >= 400) {
         return { ok: false, status: options.lookupStatus };
       }
@@ -199,6 +205,20 @@ describe('fetchAppleChartShows', () => {
     expect(first.ok && second.ok).toBe(true);
     // One chart call and one lookup call in total, not four.
     expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
+  });
+
+  it('retries the lookup once, because it times out from a cloud IP', async () => {
+    const fetchImpl = stubApple({
+      chart: { feed: { results: [chartRow()] } },
+      lookupFailures: 1,
+      lookup: { results: [lookupRow()] },
+    });
+
+    const result = await fetchAppleChartShows('us', 10, fetchImpl, freshCache());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.shows[0]?.feedUrl).toBe('https://feeds.example.com/daily.xml');
   });
 
   it('does not cache a failed chart', async () => {

@@ -19,6 +19,11 @@ import { ITUNES_USER_AGENT, lookupItunesShowsByIds, type PodcastShow } from './i
  */
 export const APPLE_CHARTS_ENDPOINT = 'https://rss.marketingtools.apple.com/api/v2';
 
+/** Seconds the lookup behind a chart waits. The lookup from a cloud IP timed
+ * out at the shared eight seconds while the same request answered in 0.04 s
+ * from a laptop, so this is deliberately longer than the rest of the app. */
+export const CHART_LOOKUP_TIMEOUT_MS = 12_000;
+
 /** Seconds a chart call waits. Measured at 1.5 s to 7.7 s for one storefront,
  * so the shared eight-second Apple timeout reported working charts as failures. */
 export const APPLE_CHARTS_TIMEOUT_MS = 15_000;
@@ -155,11 +160,15 @@ export async function fetchAppleChartShows(
 
   if (entries.length === 0) return { ok: true, shows: [] };
 
-  const looked = await lookupItunesShowsByIds(
-    entries.map((entry) => entry.appleId),
-    { country },
-    fetchImpl
-  );
+  // The lookup is the flakier half from a cloud IP: measured at 0.04 s from a
+  // laptop and timing out at eight seconds from Vercel, on the same ids. So it
+  // gets a longer budget than the shared Apple timeout and one retry.
+  const ids = entries.map((entry) => entry.appleId);
+  const lookupOptions = { country, timeoutMs: CHART_LOOKUP_TIMEOUT_MS };
+  const firstLookup = await lookupItunesShowsByIds(ids, lookupOptions, fetchImpl);
+  const looked = firstLookup.ok
+    ? firstLookup
+    : await lookupItunesShowsByIds(ids, lookupOptions, fetchImpl);
   if (!looked.ok) {
     return { ok: false, reason: `The lookup for that chart failed: ${looked.reason}` };
   }

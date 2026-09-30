@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
 
 // A chart, then one lookup for its feeds. Apple's chart host measured between
 // 1.5 s and 7.7 s on its own, so this route needs more room than the default.
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 export async function GET(request: Request): Promise<Response> {
   const params = Object.fromEntries(new URL(request.url).searchParams);
@@ -26,5 +26,11 @@ export async function GET(request: Request): Promise<Response> {
   const result = await fetchAppleChartShows(parsed.data.country, parsed.data.limit);
   if (!result.ok) return Response.json({ error: result.reason }, { status: 502 });
 
-  return Response.json({ shows: result.shows.map(toSerialisedPodcastShow) });
+  // Apple's chart host is the least reliable call in the app, and a chart moves
+  // slowly. Letting Vercel's edge hold it for ten minutes means one visitor
+  // meets a slow or failed chart rather than every visitor for the next ten.
+  return Response.json(
+    { shows: result.shows.map(toSerialisedPodcastShow) },
+    { headers: { 'cache-control': 'public, s-maxage=600, stale-while-revalidate=3600' } }
+  );
 }
