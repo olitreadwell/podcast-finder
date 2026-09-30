@@ -1,0 +1,35 @@
+name: Code Review
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: code-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  alibaba-open-code-review:
+    name: Alibaba open-code-review
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run open-code-review
+        # Advisory gate: posts review comments when an LLM endpoint is
+        # configured, but must never block a merge solely because the
+        # review secrets are absent on a repo.
+        continue-on-error: true
+        uses: alibaba/open-code-review@main
+        with:
+          # Input names come from the action's action.yml. The old
+          # LLM_API_KEY / LLM_BASE_URL / LLM_MODEL keys matched no input,
+          # so the action read an empty endpoint and exited 1 every run.
+          # github_token keeps its default value from action.yml.
+          llm_url: ${{ secrets.LLM_BASE_URL }}
+          llm_auth_token: ${{ secrets.LLM_API_KEY }}
+          llm_model: ${{ secrets.LLM_MODEL }}
+          llm_use_anthropic: ${{ secrets.LLM_USE_ANTHROPIC || 'false' }}

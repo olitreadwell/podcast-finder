@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+    # Docs-only pushes skip CI: the check gate runs on the PR instead.
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    name: Preflight (skip token)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.skip.outputs.skip }}
+    steps:
+      - id: skip
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          MSG="${COMMIT_MSG:-$PR_TITLE}"
+          if echo "$MSG" | grep -qiE '\[skip ci\]|\[ci skip\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  check:
+    name: Check (mirrors npm run check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: preflight
+    if: needs.preflight.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        if: hashFiles('pnpm-lock.yaml') != ''
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+      # Fail fast: cheap checks first, heavy work only after they pass.
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:coverage
+      - run: npm run build
+      - run: npm run smoke
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: preflight
+    if: needs.preflight.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        if: hashFiles('pnpm-lock.yaml') != ''
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - name: Install dependencies and audit
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+            pnpm audit --audit-level=high || true
+          else
+            npm ci
+            npm audit --audit-level=high || true
+          fi
+
+  e2e:
+    name: E2E (shard ${{ matrix.shard }}/2)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [preflight, check]
+    if: needs.preflight.outputs.skip == 'false'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v6
+        if: hashFiles('pnpm-lock.yaml') != ''
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+      - name: Install dependencies
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          else
+            npm ci
+          fi
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - run: npx playwright test --shard=${{ matrix.shard }}/2
+      - name: Upload Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 3
+
+  actions-lint:
+    name: Workflow lint (actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: preflight
+    if: needs.preflight.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install actionlint
+        run: |
+          curl -sSL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash | bash
+          sudo mv actionlint /usr/local/bin/
+      - run: actionlint
+
+  yaml-lint:
+    name: YAML lint (yamllint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: preflight
+    if: needs.preflight.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+      - run: python -m pip install --quiet yamllint
+      - run: yamllint -c .yamllint.yml .github/ .yamllint.yml
+
+  spell:
+    name: Spell check (codespell)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs: preflight
+    if: needs.preflight.outputs.skip == 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+      - run: python -m pip install --quiet codespell
+      - run: codespell

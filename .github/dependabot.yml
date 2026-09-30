@@ -1,0 +1,41 @@
+# Grouped so a normal week produces one PR per upgrade class instead of ten.
+# Majors stay ungrouped and unmerged: scripts/dependabot-auto-merge.mjs only
+# enables auto-merge for patch and minor bumps that are old enough to trust.
+version: 2
+updates:
+  - package-ecosystem: 'npm'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '06:00'
+      timezone: 'Pacific/Auckland'
+    versioning-strategy: increase-if-necessary
+    open-pull-requests-limit: 5
+    labels: ['dependencies']
+    groups:
+      production-patch:
+        dependency-type: 'production'
+        update-types: ['patch']
+      production-minor:
+        dependency-type: 'production'
+        update-types: ['minor']
+      development-patch:
+        dependency-type: 'development'
+        update-types: ['patch']
+      development-minor:
+        dependency-type: 'development'
+        update-types: ['minor']
+
+  - package-ecosystem: 'github-actions'
+    directory: '/'
+    schedule:
+      interval: 'weekly'
+      day: 'monday'
+      time: '06:00'
+      timezone: 'Pacific/Auckland'
+    open-pull-requests-limit: 5
+    labels: ['dependencies']
+    groups:
+      github-actions:
+        patterns: ['*']

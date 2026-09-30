@@ -1,0 +1,17 @@
+{
+  "name": "Podcast Finder",
+  "short_name": "Podcast Finder",
+  "description": "Search Apple's podcast directory, then check whether each show still publishes.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fafafa",
+  "theme_color": "#fafafa",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+# Podcast Finder
+
+> Search Apple's keyless podcast directory for shows about a topic, then read each show's own RSS or Atom feed to measure real publication gaps. Shows are labelled active, slowing, dormant or dead, with the median gap, the median episode length, and the mismatch between the cadence a show promises and the one its dates prove.
+
+## Pages
+
+- [Home](/)
+- [Help center](/help)
+- [Contact](/contact)
+- [Report feedback](/feedback)
+- [API docs (Swagger UI)](/docs)
+
+## APIs
+
+- [OpenAPI document](/api/openapi.json)
+- [Health check](/health)
+- [Contact challenge](/api/challenge)
+- [Contact submission](/api/contact)
+- [Feedback submission](/api/feedback)

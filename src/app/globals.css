@@ -1,0 +1,64 @@
+@import 'tailwindcss';
+
+/* Typed custom properties: registering the transition tokens lets the
+ * browser animate them and keeps the cascade deterministic when the
+ * theme class flips after load. */
+@property --default-transition-duration {
+  syntax: '<time>';
+  inherits: true;
+  initial-value: 150ms;
+}
+
+@property --default-transition-timing-function {
+  syntax: '*';
+  inherits: true;
+  initial-value: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Class-based dark mode: `dark:` utilities respond to `.dark` on <html>,
+ * which next-themes toggles (see theme-provider.tsx). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-neutral-50 text-neutral-900 antialiased dark:bg-neutral-950 dark:text-neutral-100;
+}
+
+/* Skip rendering off-screen content: pages are short, so this mainly
+ * helps longer apps scaffolded from the template. The intrinsic size
+ * keeps scrollbar and layout stable while content is skipped. */
+main {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 600px;
+}
+
+/* Respect reduced-motion: collapse transitions and animations to a single
+ * frame so vestibular-sensitive users are not triggered. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Print: drop the sticky header and force ink-on-paper colors. */
+@media print {
+  header {
+    display: none;
+  }
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+}
