@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { createTtlCache } from './analysis-cache';
 import {
   DEFAULT_APPLE_CHART_LIMIT,
   buildAppleChartsUrl,
@@ -7,6 +8,13 @@ import {
   fetchAppleChartShows,
   parseAppleChartsFeed,
 } from './apple-charts';
+import type { PodcastShow } from './itunes-search';
+
+/** A cache per test: the module keeps one of its own, which would leak a chart
+ * from one test into the next. */
+function freshCache() {
+  return createTtlCache<PodcastShow[]>();
+}
 
 /** One row in the shape Apple's chart feed sends. */
 function chartRow(overrides: Record<string, unknown> = {}) {
@@ -41,16 +49,26 @@ function lookupRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-/** A fetch stand-in that answers the chart call and then the lookup call. */
+/**
+ * A fetch stand-in that answers the chart call and then the lookup call.
+ * `chartFailures` makes the first chart attempts fail, which is how the retry
+ * and the cache are tested.
+ */
 function stubApple(options: {
   chart?: unknown;
   chartStatus?: number;
+  chartFailures?: number;
   lookup?: unknown;
   lookupStatus?: number;
 }) {
+  let chartFailuresLeft = options.chartFailures ?? 0;
   return vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes('rss.marketingtools.apple.com')) {
+      if (chartFailuresLeft > 0) {
+        chartFailuresLeft -= 1;
+        return { ok: false, status: 502 };
+      }
       if (options.chartStatus !== undefined && options.chartStatus >= 400) {
         return { ok: false, status: options.chartStatus };
       }
@@ -121,7 +139,7 @@ describe('fetchAppleChartShows', () => {
       lookup: { results: [lookupRow({ artworkUrl600: undefined })] },
     });
 
-    const result = await fetchAppleChartShows('us', 10, fetchImpl);
+    const result = await fetchAppleChartShows('us', 10, fetchImpl, freshCache());
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -138,25 +156,65 @@ describe('fetchAppleChartShows', () => {
   it('fails the whole call when the lookup fails, because a chart row without a feed cannot be judged', async () => {
     const fetchImpl = stubApple({ chart: { feed: { results: [chartRow()] } }, lookupStatus: 503 });
 
-    await expect(fetchAppleChartShows('us', 10, fetchImpl)).resolves.toEqual({
+    await expect(fetchAppleChartShows('us', 10, fetchImpl, freshCache())).resolves.toEqual({
       ok: false,
-      reason: 'Apple answered 503.',
+      reason: 'The lookup for that chart failed: Apple answered 503.',
     });
   });
 
-  it('names Apple when the chart itself refuses', async () => {
+  it("names Apple's chart when the chart itself refuses, after one retry", async () => {
     const fetchImpl = stubApple({ chartStatus: 500 });
 
-    await expect(fetchAppleChartShows('us', 10, fetchImpl)).resolves.toEqual({
+    await expect(fetchAppleChartShows('us', 10, fetchImpl, freshCache())).resolves.toEqual({
       ok: false,
-      reason: 'Apple answered 500.',
+      reason: "Apple's chart answered 500.",
     });
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
+  });
+
+  it('retries the chart once, because the host answers 502 on some calls', async () => {
+    const fetchImpl = stubApple({
+      chart: { feed: { results: [chartRow()] } },
+      chartFailures: 1,
+      lookup: { results: [lookupRow()] },
+    });
+
+    const result = await fetchAppleChartShows('us', 10, fetchImpl, freshCache());
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.shows).toHaveLength(1);
+  });
+
+  it('serves the next request from the ten-minute cache instead of asking again', async () => {
+    const cache = createTtlCache<PodcastShow[]>();
+    const fetchImpl = stubApple({
+      chart: { feed: { results: [chartRow()] } },
+      lookup: { results: [lookupRow()] },
+    });
+
+    const first = await fetchAppleChartShows('us', 10, fetchImpl, cache);
+    const second = await fetchAppleChartShows('us', 10, fetchImpl, cache);
+
+    expect(first.ok && second.ok).toBe(true);
+    // One chart call and one lookup call in total, not four.
+    expect((fetchImpl as unknown as { mock: { calls: unknown[] } }).mock.calls).toHaveLength(2);
+  });
+
+  it('does not cache a failed chart', async () => {
+    const cache = createTtlCache<PodcastShow[]>();
+    const failing = stubApple({ chartStatus: 500 });
+
+    await fetchAppleChartShows('us', 10, failing, cache);
+    const second = await fetchAppleChartShows('us', 10, failing, cache);
+
+    expect(second.ok).toBe(false);
   });
 
   it('answers an empty chart without asking for a lookup', async () => {
     const fetchImpl = stubApple({ chart: { feed: { results: [] } } });
 
-    await expect(fetchAppleChartShows('us', 10, fetchImpl)).resolves.toEqual({
+    await expect(fetchAppleChartShows('us', 10, fetchImpl, freshCache())).resolves.toEqual({
       ok: true,
       shows: [],
     });

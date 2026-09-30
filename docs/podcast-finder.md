@@ -137,6 +137,13 @@ card, one sort and one verdict machinery serving all four. A row carries its
 React keys on and what the verdict index is keyed by, so two directories can
 never collide in a list.
 
+Apple's chart host is the least reliable call in the app: one storefront's top
+ten measured between 0.7 s and 25 s, and some calls answered 502 outright. So a
+chart that did answer is cached in-process for ten minutes, one retry covers a
+502, and the route waits fifteen seconds rather than the eight the lookup uses.
+A slow chart therefore costs one visitor, not every visitor for the next ten
+minutes.
+
 The Archive is the honest exception. Its rows are real shows with real titles
 and publishers, and no feed, so they are listed with a sentence saying they
 cannot be checked rather than a verdict they have not earned. The Archive query
