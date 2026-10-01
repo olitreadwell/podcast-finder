@@ -68,6 +68,7 @@ src/lib/podcast-finder/show-tags.ts              tags, facts, sorting
 src/lib/podcast-finder/publisher-shows.ts        grouping shows by publisher
 src/lib/podcast-finder/search-query.ts           the search box's query language
 src/lib/podcast-finder/directory-search.ts       one search across every directory, merged
+src/lib/podcast-finder/directory-search-cache.ts the ten-minute cache over a merged search
 src/lib/podcast-finder/directory-mix.ts          which directories answered, and how to say so
 src/lib/podcast-finder/show-table.ts             one render-ready row per show, and column sorting
 src/lib/podcast-finder/fyyd-search.ts            the second directory
@@ -87,6 +88,14 @@ directories answer and the verdicts fill in behind it. Each route exists for a
 reason the browser cannot cover: Apple sends no CORS headers worth relying on
 and rate limits per IP, and feed hosts have to be read from somewhere that is
 not the visitor's browser.
+
+A merged search is cached twice over. The answer is held in process for ten
+minutes, the same life a feed report gets, and the route marks a complete answer
+`s-maxage=600, stale-while-revalidate=300` so a repeat of the same term is
+answered by the edge without reaching the function at all. Only a search every
+directory answered is marked cacheable: one carrying a sentence about a
+directory that timed out is served fresh every time, because a blip should not
+become the cached truth for ten minutes.
 
 ## How a verdict is measured
 
@@ -310,9 +319,9 @@ list, under the repo's 70% threshold.
 ## Boundaries
 
 - Always: parse every upstream body with zod or an explicit guard, cap the batch
-  at 20 feeds, pull at most 4 at once, cache reports for 10 minutes, name the
-  app in the user agent, and answer a sentence for each failure instead of
-  failing the batch.
+  at 20 feeds, pull at most 4 at once, cache reports and merged searches for 10
+  minutes, name the app in the user agent, and answer a sentence for each
+  failure instead of failing the batch.
 - Ask first: adding a dependency (an XML parser would be one), a database, or
   anything that needs a key.
 - Never: claim a show is dead without dates to prove it, fetch a non-http feed

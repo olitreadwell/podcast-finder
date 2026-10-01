@@ -46,6 +46,9 @@ export interface MergedDirectorySearch {
   unavailable: string[];
 }
 
+/** A merged search that succeeded, which is the shape the cache holds. */
+export type MergedDirectorySearchResult = { ok: true } & MergedDirectorySearch;
+
 /**
  * A key that identifies the same show twice.
  *
@@ -89,7 +92,7 @@ export function dedupeDirectoryShows(shows: readonly PodcastShow[]): PodcastShow
 export async function searchEveryDirectory(
   options: PodcastSearchOptions,
   fetchImpl: typeof fetch = fetch
-): Promise<({ ok: true } & MergedDirectorySearch) | { ok: false; reason: string }> {
+): Promise<MergedDirectorySearchResult | { ok: false; reason: string }> {
   const [apple, fyyd, archive] = await Promise.all([
     searchItunesPodcasts({ ...options, limit: APPLE_ROWS_PER_SEARCH }, fetchImpl),
     searchFyydPodcasts(options.term, FYYD_ROWS_PER_SEARCH, fetchImpl),

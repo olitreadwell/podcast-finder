@@ -9,11 +9,13 @@
 // search, because one source being down is not worth an empty page.
 
 import { searchEveryDirectory } from '@/lib/podcast-finder/directory-search';
+import {
+  directorySearchCache,
+  readDirectorySearchCacheControl,
+  readDirectorySearchCacheKey,
+} from '@/lib/podcast-finder/directory-search-cache';
 import { toSerialisedPodcastShow } from '@/lib/podcast-finder/itunes-search';
 import { podcastSearchQuerySchema } from '@/server/podcast-schemas';
-
-// Reads the query string, so it must never be prerendered or cached per build.
-export const dynamic = 'force-dynamic';
 
 // The merged search waits for every directory, and fyyd can take ten seconds,
 // so the route asks for the same headroom the status route does.
@@ -26,13 +28,19 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ error: 'Search needs at least two characters.' }, { status: 400 });
   }
 
-  const result = await searchEveryDirectory(parsed.data);
+  const cacheKey = readDirectorySearchCacheKey(parsed.data);
+  const cached = directorySearchCache.get(cacheKey);
+  const result = cached ?? (await searchEveryDirectory(parsed.data));
   if (!result.ok) return Response.json({ error: result.reason }, { status: 502 });
+  if (cached === undefined) directorySearchCache.set(cacheKey, result);
 
-  return Response.json({
-    shows: result.shows.map(toSerialisedPodcastShow),
-    counts: result.counts,
-    archiveItems: result.archiveItems.map(toSerialisedPodcastShow),
-    unavailable: result.unavailable,
-  });
+  return Response.json(
+    {
+      shows: result.shows.map(toSerialisedPodcastShow),
+      counts: result.counts,
+      archiveItems: result.archiveItems.map(toSerialisedPodcastShow),
+      unavailable: result.unavailable,
+    },
+    { headers: { 'Cache-Control': readDirectorySearchCacheControl(result.unavailable) } }
+  );
 }
