@@ -12,3 +12,15 @@ Stack-specific notes for this template.
   `src/components/ui` (shadcn aliases in `components.json`).
 - `src/lib` = pure domain logic + shared services; `src/server` = contracts;
   `src/app` = routes only.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live as GitHub issues in `olitreadwell/podcast-finder`, read and written
+with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, with the label strings unchanged. See
+`docs/agents/triage-labels.md`.
