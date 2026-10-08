@@ -2,6 +2,12 @@ name: Quality Gates
 
 on:
   push:
+    # Bot branches get their Lighthouse run from the pull_request event.
+    branches:
+      - main
+      - master
+      - dev
+      - development
     # Lighthouse is a stable-build gate; don't burn minutes on docs-only pushes.
     paths-ignore:
       - 'docs/**'
@@ -29,6 +35,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version-file: '.nvmrc'
+          cache: ${{ hashFiles('pnpm-lock.yaml') != '' && 'pnpm' || (hashFiles('package-lock.json') != '' && 'npm' || '') }}
       - name: Install dependencies
         run: |
           if [ -f pnpm-lock.yaml ]; then

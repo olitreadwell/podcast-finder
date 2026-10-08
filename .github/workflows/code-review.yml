@@ -1,7 +1,11 @@
 name: Code Review
 
 on:
+  # Re-reviewing on every push to a bot branch replayed the whole LLM review
+  # once per dependabot and renovate commit. New revisions are reviewed when
+  # the PR is opened or marked ready for review.
   pull_request:
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   contents: read

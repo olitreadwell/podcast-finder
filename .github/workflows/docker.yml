@@ -2,6 +2,17 @@ name: Docker
 
 on:
   push:
+    # Bot branches build the image from their pull_request run instead.
+    branches:
+      - main
+      - master
+      - dev
+      - development
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
+      - 'AGENTS.md'
+      - 'CLAUDE.md'
   pull_request:
 
 permissions:
