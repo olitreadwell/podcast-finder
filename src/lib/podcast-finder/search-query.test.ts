@@ -164,10 +164,10 @@ describe('parsePodcastQuery', () => {
   });
 
   it('lists the real fields when one is misspelled', () => {
-    const parsed = parsePodcastQuery('titel:water');
+    const parsed = parsePodcastQuery('titel:water'); // codespell:ignore
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;
-    expect(parsed.reason).toContain('no `titel` field');
+    expect(parsed.reason).toContain('no `titel` field'); // codespell:ignore
     expect(parsed.reason).toContain('title');
   });
 
